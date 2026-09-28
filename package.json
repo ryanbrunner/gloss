@@ -1,0 +1,31 @@
+{
+  "name": "gloss",
+  "description": "Review a running web app in a browser with a feedback bar on top, and hand the comments to Claude",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "gloss": "./bin/gloss.js"
+  },
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "gloss": "node bin/gloss.js",
+    "test": "tsx --test 'src/**/*.test.ts' 'scripts/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "esbuild": "~0.28.0",
+    "hono": "^4.13.8",
+    "playwright": "^1.63.0",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
