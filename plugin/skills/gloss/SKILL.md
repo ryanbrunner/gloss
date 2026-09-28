@@ -1,7 +1,7 @@
 ---
 name: gloss
 description: "Open a running web app (a dev server URL) in the Gloss review window, then apply the reviewer's feedback round by round until they approve. Use only when the user invokes /gloss or directly asks to review a page with Gloss."
-allowed-tools: Bash(gloss:*), Bash(command -v gloss), Bash(cat:*), Read, Edit, Write, Glob, Grep
+allowed-tools: Bash(gloss:*), Bash(command -v gloss), Bash(mktemp:*), Bash(cat:*), Read, Edit, Write, Glob, Grep
 argument-hint: "<url>"
 ---
 
@@ -37,17 +37,26 @@ Relay what it prints:
 > **"Gloss is open on <url>. Add comments in the bar and press Submit to send
 > them to me, or Approve when you are happy."**
 
+Then make a file of this review's own for the verdicts, and remember the path
+it prints. Every later step uses that path, written below as `<verdict-file>`.
+A fixed path would be shared with every other review on the machine.
+
+```bash
+mktemp -t gloss-verdict.XXXXXX
+```
+
 ## Step 3: Wait for the reviewer
 
 **CRITICAL: run this with `run_in_background: true`.** The reviewer can take
 longer than a foreground command is allowed to run.
 
 ```bash
-gloss wait > "${TMPDIR:-/tmp}/gloss-verdict.json"
+gloss wait > <verdict-file>
 ```
 
 stdout goes to the file so that nothing else is mixed into it; progress and
-errors stay on stderr. **Do not proceed until the background task has
+errors stay on stderr. The `>` empties the file first, so a wait that fails
+leaves it empty rather than holding the last round. **Do not proceed until the background task has
 finished.** Do not ask the user to type anything, and do not start another
 `gloss wait` while this one is running.
 
@@ -56,7 +65,7 @@ finished.** Do not ask the user to type anything, and do not start another
 When the task finishes, note its exit code, then read the file:
 
 ```bash
-cat "${TMPDIR:-/tmp}/gloss-verdict.json"
+cat <verdict-file>
 ```
 
 It is one JSON document:

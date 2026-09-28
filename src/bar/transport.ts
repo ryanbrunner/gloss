@@ -54,8 +54,11 @@ const PW_BINDING = '__playwright__binding__';
  *   `JSON.stringify`, or a `toJSON` or index setter on the prototypes, could
  *   otherwise rewrite a harmless call into an approval.
  *
- * This hardens the page's own realm; it cannot seal it. What is left is
- * noted in the README, and the loop spike checks each route named here.
+ * This hardens the page's own realm; it cannot seal it. The check runs
+ * before Playwright's `callBinding`, which calls builtins of its own (a
+ * Map's `get`, `new Promise`) before it writes the call out, and a page that
+ * has replaced one of those can patch JSON after the check has passed. Only
+ * an isolated world closes that. The loop spike checks each route named here.
  * If Playwright's names change, the bar still works and the spike says the
  * seal is gone.
  */
