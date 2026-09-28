@@ -107,7 +107,8 @@ await new Promise<void>((r) => site.listen(0, '127.0.0.1', r));
 // localhost, as a user would type it, while the site listens on 127.0.0.1.
 const base = `http://localhost:${(site.address() as AddressInfo).port}`;
 
-let cdp: Browser | null = null;
+// Widened, so control flow doesn't narrow it to null: windowPage() sets it.
+let cdp = null as Browser | null;
 async function windowPage(): Promise<Page> {
   cdp ??= await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
   return until('the session window', () => cdp!.contexts().flatMap((c) => c.pages()).at(-1));
