@@ -29,8 +29,18 @@ export function keepPinnedClear(host: Element): void {
 
   const scan = () => {
     queued = false;
+    // Turning the offsets off and on is a style change like any other, and
+    // starts whatever transition the page has on `top`: a header with
+    // `transition: all` would slide up and back on every scan, and be read
+    // part way there. What the scan starts, it cancels.
+    const running = new Set([...marked].flatMap(topTransitions));
+    const settle = () => {
+      for (const el of marked) for (const t of topTransitions(el)) if (!running.has(t)) t.cancel();
+    };
+
     // Read with the offsets off, so each `top` is the page's own.
     sheet.disabled = true;
+    settle();
     const pinned: Array<[Element, string]> = [];
     for (const el of document.documentElement.querySelectorAll('*')) {
       if (el === host) continue;
@@ -55,6 +65,7 @@ export function keepPinnedClear(host: Element): void {
     marked = next;
     const text = css.join('\n');
     if (text !== rules) sheet.replaceSync((rules = text));
+    settle();
   };
 
   // Looked at again once a frame at most, after anything that can pin or
@@ -89,6 +100,10 @@ function placedByViewport(el: Element, position: 'fixed' | 'sticky'): boolean {
   }
   return true;
 }
+
+/** Asking flushes pending style changes, so this includes the ones the scan just made. */
+const topTransitions = (el: Element) =>
+  el.getAnimations().filter((a): a is CSSTransition => a instanceof CSSTransition && a.transitionProperty === 'top');
 
 const scrolls = (style: CSSStyleDeclaration) =>
   [style.overflowX, style.overflowY].some((overflow) => overflow !== 'visible' && overflow !== 'clip');
