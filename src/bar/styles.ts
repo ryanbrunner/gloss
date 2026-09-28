@@ -4,8 +4,8 @@ export const BAR_HEIGHT = 44;
 /**
  * The one change the bar makes to the page's own styles. Moving `html` down
  * moves everything in normal flow with it, and `scroll-padding-top` keeps an
- * anchor jump from landing under the bar. A `position: fixed; top: 0` header
- * does not move and ends up under the bar; that is a known gap.
+ * anchor jump from landing under the bar. An element pinned to the viewport
+ * does not move with it; pinned.ts moves those.
  */
 export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
 

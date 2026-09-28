@@ -1,4 +1,5 @@
 import type { Comment, RoundState } from '../session/store.js';
+import { keepPinnedClear } from './pinned.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
 
@@ -11,8 +12,9 @@ import type { Transport } from './transport.js';
  * `<body>` so a framework that owns the body never sees it. Its styles are
  * constructed stylesheets, which a strict CSP's `style-src` does not block the
  * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The one
- * mark it leaves on the page's own styles is PAGE_OFFSET.
+ * than through `innerHTML`, for pages that enforce Trusted Types. The marks
+ * it leaves on the page's own styles are PAGE_OFFSET, and the offsets that
+ * keep the page's fixed and sticky elements out from under it.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -138,6 +140,7 @@ class Bar {
     placeholder();
 
     this.keepAttached();
+    keepPinnedClear(this.host);
     this.transport.subscribe((s) => this.render(s));
     this.render(this.state);
     this.transport.state().then((s) => this.render(s), (e: unknown) => this.fail(e));
