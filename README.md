@@ -73,9 +73,10 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - Comments belong to the session, not the page, so they survive a reload and
   every tab shows the same list.
 - The bar lives in a shadow root on one `<gloss-bar>` element on `<html>`. Page
-  CSS cannot reach into it and its CSS cannot leak out. The one change to the
-  page's own styles is `html { margin-top: 44px }`, which pushes the page down
-  below the bar.
+  CSS cannot reach into it and its CSS cannot leak out. The changes to the
+  page's own styles are `html { margin-top: 44px }`, which pushes the page down
+  below the bar, and 44px added to the page's own `scroll-padding-top`, so an
+  anchor jump lands below the bar and any sticky header the page allows for.
 
 ### Known gaps
 
