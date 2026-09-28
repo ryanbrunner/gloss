@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
  *
  * `session` mounts itself against the Gloss session's binding, for
  * `addInitScript`. `demo` mounts nothing on its own: it exposes
- * `GlossDemo.mount(...)` for the demo page to call with comments of its own.
+ * `GlossDemo.mount(...)` for the demo page to call with a round of its own
+ * (a `DemoRound`, from ./transport.ts).
  */
 export type BarMode = 'session' | 'demo';
 
@@ -25,7 +26,7 @@ const ENTRIES: Record<BarMode, string> = {
     import { mountBar } from './bar.js';
     import { memoryTransport } from './transport.js';
     export function mount(options) {
-      mountBar(memoryTransport({ comments: options.comments }), { listOpen: options.listOpen });
+      mountBar(memoryTransport(options.round), { listOpen: options.listOpen, confirmOpen: options.confirmOpen });
     }
   `,
 };
