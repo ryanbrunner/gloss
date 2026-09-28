@@ -152,6 +152,16 @@ try {
   assert.equal(layout.headerBackground, 'rgb(255, 255, 255)');
   console.log(`bar: 44px on <html>, storefront header at ${layout.headerTop}px`);
 
+  // An anchor jump clears the page's own 51px header as well as the bar. The
+  // padding gives the page room to scroll the summary that far.
+  await page.evaluate(() => (document.body.style.paddingBottom = '100vh'));
+  await page.getByRole('link', { name: 'Cart (2)' }).click();
+  const summaryTop = () => page.evaluate(() => document.querySelector('#summary')!.getBoundingClientRect().top);
+  await until('the summary below the header', async () => (await summaryTop()) === 95);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingTop), '95px');
+  await page.evaluate(() => (document.body.style.paddingBottom = ''));
+  console.log('anchor jump: Cart (2) put the summary at 95px, below the bar and the header');
+
   // Adding: Enter, the Add button, and Shift+Enter for a newline.
   const box = page.locator('gloss-bar textarea');
   await box.fill('The header is too tall');

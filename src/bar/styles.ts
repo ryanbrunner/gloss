@@ -7,7 +7,7 @@ export const BAR_HEIGHT = 44;
  * from landing under the bar. A `position: fixed; top: 0` header does not move
  * and ends up under the bar; that is a known gap.
  */
-export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important}`;
+export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
