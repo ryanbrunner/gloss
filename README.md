@@ -117,6 +117,7 @@ npm test              # unit tests
 npm run typecheck
 npm run dev -- -port 4400
 npx tsx scripts/spikes/open-check.ts   # end to end, headless; needs Chromium
+npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
 ```
 
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
