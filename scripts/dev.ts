@@ -113,6 +113,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(2);
   }
   const server = createDevServer();
+  server.once('error', (e: NodeJS.ErrnoException) => {
+    console.error(e.code === 'EADDRINUSE' ? `dev: port ${port} is already in use; pick another with -port N` : `dev: ${e.message}`);
+    process.exit(1);
+  });
   server.listen(port, '127.0.0.1', () => {
     const address = server.address();
     const actual = address && typeof address === 'object' ? address.port : port;

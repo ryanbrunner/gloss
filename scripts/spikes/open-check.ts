@@ -8,8 +8,9 @@
  * (`GLOSS_CDP_PORT`), and the state files go to a temporary `GLOSS_HOME`, so
  * none of it touches a real session. Needs Chromium: `npx playwright install
  * chromium`. Not part of `npm test`, so CI without a browser stays green.
+ * `--headed` shows the real window instead, for a few seconds.
  *
- *   npx tsx scripts/spikes/open-check.ts
+ *   npx tsx scripts/spikes/open-check.ts [--headed]
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -32,7 +33,13 @@ mkdirSync(cwd);
 process.env.GLOSS_HOME = home;
 
 const cdpPort = await freePort();
-const env = { ...process.env, GLOSS_HOME: home, GLOSS_HEADLESS: '1', GLOSS_CDP_PORT: String(cdpPort) };
+const headed = process.argv.includes('--headed');
+const env = {
+  ...process.env,
+  GLOSS_HOME: home,
+  GLOSS_CDP_PORT: String(cdpPort),
+  ...(headed ? {} : { GLOSS_HEADLESS: '1' }),
+};
 
 interface Ran {
   code: number;
