@@ -1,5 +1,5 @@
 import type { Comment, RoundState } from '../session/store.js';
-import { BAR_STYLES, PAGE_OFFSET } from './styles.js';
+import { BAR_STYLES, NARROW, PAGE_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
 
 /**
@@ -71,11 +71,7 @@ class Bar {
   private listOpen: boolean;
 
   private readonly round = h('span', { class: 'round' });
-  private readonly input = h('textarea', {
-    rows: '1',
-    placeholder: 'Add a general comment…',
-    'aria-label': 'Add a general comment',
-  });
+  private readonly input = h('textarea', { rows: '1', 'aria-label': 'Add a general comment' });
   private readonly count = h('span');
   private readonly caret = h('span', { class: 'caret', 'aria-hidden': 'true' });
   private readonly toggle = h(
@@ -136,6 +132,11 @@ class Bar {
       if (this.listOpen && !e.composedPath().includes(this.host)) this.setListOpen(false);
     });
     window.addEventListener('resize', () => this.place());
+    // On a phone the box is a few words wide; the long placeholder would be cut off mid-word.
+    const narrow = window.matchMedia(NARROW);
+    const placeholder = () => (this.input.placeholder = narrow.matches ? 'Comment…' : 'Add a general comment…');
+    narrow.addEventListener('change', placeholder);
+    placeholder();
 
     this.keepAttached();
     this.transport.subscribe((s) => this.render(s));

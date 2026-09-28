@@ -9,6 +9,9 @@ export const BAR_HEIGHT = 44;
  */
 export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
 
+/** Where the bar sheds its labels to fit a phone. */
+export const NARROW = '(max-width: 640px)';
+
 /**
  * Reeve's dark palette, from reeve/packages/web/src/index.css, so the bar
  * reads as the same family of tool.
@@ -74,7 +77,8 @@ textarea {
   line-height: 16px;
   resize: none;
   overflow: hidden;
-  white-space: pre-wrap;
+  /* One line that scrolls sideways, like an input, but a Shift+Enter newline is kept. */
+  white-space: pre;
 }
 textarea::placeholder { color: ${MUTED}; }
 textarea:focus { outline: none; border-color: ${SKY}; }
@@ -94,7 +98,8 @@ button {
 button:not(.later):hover { border-color: #3a4350; }
 button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
 .toggle[aria-expanded="true"] { border-color: ${SKY}; }
-.caret { font-size: 9px; margin-left: 4px; vertical-align: 1px; }
+.caret { font-size: 7px; margin-left: 5px; vertical-align: 2px; }
+.caret:empty { display: none; }
 .spacer { flex: 1; }
 .later { cursor: not-allowed; font-weight: 400; }
 .submit { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
@@ -139,7 +144,7 @@ button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
 .delete:hover { color: ${TEXT}; }
 .empty { padding: 10px 13px; color: ${MUTED}; }
 
-@media (max-width: 640px) {
+@media ${NARROW} {
   .bar { gap: 6px; padding: 0 8px; }
   .round, .toggle-label { display: none; }
   button { padding: 0 8px; }
