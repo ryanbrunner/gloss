@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The browser spikes: the only checks that drive a real Chromium through
+  # `gloss open`, so `npm test` leaves them out. Both run headless on their own.
+  spikes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx tsx scripts/spikes/open-check.ts
+      - run: npx tsx scripts/spikes/nav-check.ts
+        if: ${{ !cancelled() }}
