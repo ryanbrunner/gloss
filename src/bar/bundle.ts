@@ -14,16 +14,18 @@ import { fileURLToPath } from 'node:url';
 export type BarMode = 'session' | 'demo';
 
 const ENTRIES: Record<BarMode, string> = {
+  // Sealed in every frame, before the top-frame check in mountBar: a frame's
+  // own copy of the binding is as much a way in as the page's.
   session: `
     import { mountBar } from './bar.js';
-    import { bindingTransport } from './transport.js';
-    mountBar(bindingTransport());
+    import { bindingTransport, sealBinding } from './transport.js';
+    mountBar(bindingTransport(sealBinding()));
   `,
   demo: `
     import { mountBar } from './bar.js';
     import { memoryTransport } from './transport.js';
     export function mount(options) {
-      mountBar(memoryTransport(options.comments), { listOpen: options.listOpen });
+      mountBar(memoryTransport({ comments: options.comments }), { listOpen: options.listOpen });
     }
   `,
 };
