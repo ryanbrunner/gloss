@@ -12,6 +12,9 @@
  *   &seed=N   start with N comments already written
  *   &list     start with the comment list open
  *   ?fixed    a header that is position: fixed rather than sticky
+ *   ?fullheight
+ *             an app shell sized to 100vh, with the products scrolling
+ *             inside it rather than the page
  *   ?csp      sent with a strict Content-Security-Policy. `gloss open` still
  *             gets its bar onto it; `?gloss` does not, as its script is inline.
  */
@@ -68,7 +71,8 @@ const inlineSafe = (text: string) => text.replace(/<\/script/gi, '<\\/script');
 export function renderPage(html: string, query: URLSearchParams, demoBar: string | null): Page {
   const headers: Record<string, string> = {};
   let page = html;
-  if (query.has('fixed')) page = page.replace('<body>', '<body class="fixed-header">');
+  const classes = [query.has('fixed') && 'fixed-header', query.has('fullheight') && 'full-height'].filter(Boolean);
+  if (classes.length) page = page.replace('<body>', `<body class="${classes.join(' ')}">`);
   if (query.has('csp')) headers['content-security-policy'] = STRICT_CSP;
   if (query.has('gloss') && demoBar !== null) {
     const seed = Math.max(0, Math.min(Number(query.get('seed')) || 0, SEED_COMMENTS.length));

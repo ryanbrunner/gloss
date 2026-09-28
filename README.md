@@ -130,6 +130,7 @@ by URL, using the same bar with its comments kept in the page:
 | `/?gloss` | the bar, empty |
 | `/?gloss&seed=2&list` | two comments, with the list open |
 | `/?fixed` | a `position: fixed` header |
+| `/?fullheight` | an app shell sized to `100vh`, the shop scrolling inside it |
 | `/?csp` | served with a strict Content-Security-Policy |
 
 Two environment variables exist for the spike: `GLOSS_HEADLESS=1` runs the

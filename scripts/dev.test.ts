@@ -63,6 +63,11 @@ describe('renderPage', () => {
     assert.match(renderPage(HTML, q('fixed'), null).html, /<body class="fixed-header">/);
     assert.deepEqual(renderPage(HTML, q('csp'), null).headers, { 'content-security-policy': STRICT_CSP });
   });
+
+  test('?fullheight marks the body, alongside ?fixed', () => {
+    assert.match(renderPage(HTML, q('fullheight'), null).html, /<body class="full-height">/);
+    assert.match(renderPage(HTML, q('fixed&fullheight'), null).html, /<body class="fixed-header full-height">/);
+  });
 });
 
 describe('the dev server', () => {
