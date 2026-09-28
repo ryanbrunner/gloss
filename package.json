@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "gloss": "node bin/gloss.js",
+    "schema": "tsx scripts/write-schema.ts",
     "test": "tsx --test 'src/**/*.test.ts' 'scripts/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
