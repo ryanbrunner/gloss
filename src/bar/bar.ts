@@ -1,4 +1,5 @@
 import type { Comment, RoundState } from '../session/store.js';
+import { addScrollPadding } from './scroll-padding.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
 
@@ -11,8 +12,9 @@ import type { Transport } from './transport.js';
  * `<body>` so a framework that owns the body never sees it. Its styles are
  * constructed stylesheets, which a strict CSP's `style-src` does not block the
  * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The one
- * mark it leaves on the page's own styles is PAGE_OFFSET.
+ * than through `innerHTML`, for pages that enforce Trusted Types. The marks
+ * it leaves on the page's own styles are PAGE_OFFSET, and its height added to
+ * the page's scroll padding.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -38,6 +40,7 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // Pushed down straight away, before the page has painted, so the content
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
+  addScrollPadding();
 
   const start = () => {
     if (!document.querySelector(HOST_TAG)) new Bar(transport, options).attach();

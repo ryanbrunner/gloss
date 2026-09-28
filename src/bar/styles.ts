@@ -2,12 +2,12 @@
 export const BAR_HEIGHT = 44;
 
 /**
- * The one change the bar makes to the page's own styles. Moving `html` down
- * moves everything in normal flow with it, and `scroll-padding-top` keeps an
- * anchor jump from landing under the bar. A `position: fixed; top: 0` header
- * does not move and ends up under the bar; that is a known gap.
+ * The bar's change to the page's own layout. Moving `html` down moves
+ * everything in normal flow with it; scroll-padding.ts keeps an anchor jump
+ * from landing under the bar. A `position: fixed; top: 0` header does not move
+ * and ends up under the bar; that is a known gap.
  */
-export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
+export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important}`;
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
