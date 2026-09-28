@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { CommentStore, type RoundState } from './store.js';
+import { CommentStore, pinNumbers, type Pin, type RoundState } from './store.js';
 
 describe('CommentStore', () => {
   test('starts on round 1 with nothing in it', () => {
@@ -71,4 +71,47 @@ describe('CommentStore', () => {
     snap.comments.pop();
     assert.equal(store.snapshot().comments[0]?.body, 'one');
   });
+
+  test('keeps a pin with its comment, and a copy of it rather than the caller’s', () => {
+    const store = new CommentStore(() => 1000);
+    const given = pin();
+    const added = store.add('  Price is wrong ', given);
+    given.box.x = 999;
+    assert.deepEqual(added, { id: 'c1', body: 'Price is wrong', createdAt: 1000, pin: pin() });
+    const snap = store.snapshot();
+    snap.comments[0]!.pin!.box.y = 999;
+    assert.deepEqual(store.snapshot().comments[0]?.pin, pin());
+  });
+
+  test('leaves the pin off a general comment', () => {
+    const store = new CommentStore();
+    store.add('general');
+    assert.equal('pin' in store.snapshot().comments[0]!, false);
+  });
 });
+
+describe('pinNumbers', () => {
+  test('numbers the pinned comments in order, skipping general ones', () => {
+    const store = new CommentStore();
+    store.add('general');
+    const a = store.add('first pin', pin());
+    store.add('another general');
+    const b = store.add('second pin', pin());
+    assert.ok(a && b);
+    assert.deepEqual([...pinNumbers(store.snapshot().comments)], [
+      [a.id, 1],
+      [b.id, 2],
+    ]);
+  });
+});
+
+function pin(): Pin {
+  return {
+    url: 'http://127.0.0.1:4400/',
+    selector: 'section.products > article:nth-of-type(2) > p',
+    tag: 'p',
+    text: '$16.00',
+    box: { x: 300, y: 420, width: 180, height: 20 },
+    viewport: { width: 1280, height: 800 },
+  };
+}

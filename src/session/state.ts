@@ -35,6 +35,8 @@ export interface SessionRef {
   statePath: string;
   logPath: string;
   lockPath: string;
+  /** Screenshots of pinned elements go in a directory here named for the session's pid. */
+  shotsPath: string;
 }
 
 export const glossHome = () => process.env.GLOSS_HOME ?? join(homedir(), '.gloss');
@@ -55,6 +57,7 @@ export function sessionRef(cwd: string, name = ''): SessionRef {
     statePath: join(home, 'sessions', `${id}.json`),
     logPath: join(home, 'logs', `${id}.log`),
     lockPath: join(home, 'sessions', `${id}.lock`),
+    shotsPath: join(home, 'shots', id),
   };
 }
 

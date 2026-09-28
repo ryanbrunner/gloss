@@ -1,4 +1,4 @@
-import { CommentStore, type RoundState } from '../session/store.js';
+import { CommentStore, type PinDraft, type RoundState } from '../session/store.js';
 
 /**
  * How the bar reaches whatever holds the round's comments. The bar does not
@@ -7,14 +7,18 @@ import { CommentStore, type RoundState } from '../session/store.js';
  */
 export interface Transport {
   state(): Promise<RoundState>;
-  add(body: string): Promise<RoundState>;
+  /** A general comment, or with a pin, one about an element on the page. */
+  add(body: string, pin?: PinDraft): Promise<RoundState>;
   remove(id: string): Promise<RoundState>;
   /** Changes made somewhere else: another tab, or later on, the CLI. */
   subscribe(listener: (state: RoundState) => void): void;
 }
 
 /** The request the binding carries. See `handleRpc` in ../session/browser.ts. */
-export type RpcCall = { method: 'state' } | { method: 'add'; body: string } | { method: 'remove'; id: string };
+export type RpcCall =
+  | { method: 'state' }
+  | { method: 'add'; body: string; pin?: PinDraft }
+  | { method: 'remove'; id: string };
 
 /** The event the session dispatches on every page's window after each change. */
 export const STATE_EVENT = 'gloss:state';
@@ -38,21 +42,24 @@ export function bindingTransport(): Transport {
   };
   return {
     state: () => rpc({ method: 'state' }),
-    add: (body) => rpc({ method: 'add', body }),
+    add: (body, pin) => rpc(pin ? { method: 'add', body, pin } : { method: 'add', body }),
     remove: (id) => rpc({ method: 'remove', id }),
     subscribe: (listener) =>
       window.addEventListener(STATE_EVENT, (e) => listener((e as CustomEvent<RoundState>).detail)),
   };
 }
 
-/** The demo page's transport: the same store the session uses, kept in the page. */
+/**
+ * The demo page's transport: the same store the session uses, kept in the
+ * page. With no session to take them, its pins have no screenshots.
+ */
 export function memoryTransport(seed: string[] = []): Transport {
   const store = new CommentStore();
   for (const body of seed) store.add(body);
   return {
     state: async () => store.snapshot(),
-    add: async (body) => {
-      store.add(body);
+    add: async (body, pin) => {
+      store.add(body, pin);
       return store.snapshot();
     },
     remove: async (id) => {

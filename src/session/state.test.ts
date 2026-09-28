@@ -59,6 +59,7 @@ describe('sessionRef', () => {
     const ref = sessionRef(dir('a'));
     assert.equal(ref.statePath, join(root, 'home', 'sessions', `${ref.id}.json`));
     assert.equal(ref.logPath, join(root, 'home', 'logs', `${ref.id}.log`));
+    assert.equal(ref.shotsPath, join(root, 'home', 'shots', ref.id));
   });
 
   test('is the same for the same directory, and differs by directory and name', () => {
