@@ -67,7 +67,7 @@ function h<K extends keyof HTMLElementTagNameMap>(
 class Bar {
   private readonly host = document.createElement(HOST_TAG);
   private readonly root = this.host.attachShadow({ mode: 'open' });
-  private state: RoundState = { round: 1, comments: [] };
+  private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, comments: [] };
   private listOpen: boolean;
 
   private readonly round = h('span', { class: 'round' });
