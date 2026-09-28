@@ -59,7 +59,7 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
-            "description": "The round it went out in: always the verdict’s own."
+            "description": "The round it went out in: always the round of the verdict it is in."
           },
           "target": {
             "anyOf": [

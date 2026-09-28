@@ -23,7 +23,7 @@ export const verdictCommentSchema = z
     body: z.string().describe('What the reviewer wrote, trimmed. May hold newlines.'),
     page: z.string().nullable().describe('The page the reviewer was on when they wrote it.'),
     createdAt: z.number().describe('When it was written, in milliseconds since the epoch.'),
-    sentIn: z.number().int().positive().describe('The round it went out in: always the verdict’s own.'),
+    sentIn: z.number().int().positive().describe('The round it went out in: always the round of the verdict it is in.'),
     target: z
       .record(z.string(), z.unknown())
       .nullable()
