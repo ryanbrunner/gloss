@@ -40,6 +40,7 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // Pushed down straight away, before the page has painted, so the content
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
+  addScrollPadding();
 
   const start = () => {
     if (!document.querySelector(HOST_TAG)) new Bar(transport, options).attach();
