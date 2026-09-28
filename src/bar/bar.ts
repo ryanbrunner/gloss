@@ -73,13 +73,12 @@ class Bar {
   private readonly round = h('span', { class: 'round' });
   private readonly input = h('textarea', { rows: '1', 'aria-label': 'Add a general comment' });
   private readonly count = h('span');
-  private readonly caret = h('span', { class: 'caret', 'aria-hidden': 'true' });
   private readonly toggle = h(
     'button',
     { class: 'toggle', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'gloss-list' },
     h('span', { class: 'toggle-label' }, 'Comments '),
     this.count,
-    this.caret,
+    h('span', { class: 'caret', 'aria-hidden': 'true' }),
   );
   private readonly error = h('span', { class: 'error', role: 'status' });
   private readonly note = h('span', { class: 'note', role: 'status' });
@@ -195,7 +194,6 @@ class Bar {
     this.error.textContent = '';
     this.round.textContent = `Round ${state.round}`;
     this.count.textContent = `(${state.comments.length})`;
-    this.caret.textContent = this.listOpen ? '▴' : '';
     this.toggle.setAttribute('aria-expanded', String(this.listOpen));
     this.list.hidden = !this.listOpen;
     this.list.replaceChildren(

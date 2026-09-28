@@ -98,8 +98,16 @@ button {
 button:not(.later):hover { border-color: #3a4350; }
 button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
 .toggle[aria-expanded="true"] { border-color: ${SKY}; }
-.caret { font-size: 7px; margin-left: 5px; vertical-align: 2px; }
-.caret:empty { display: none; }
+/* Drawn rather than a ▴, which some system fonts render as a dot. */
+.caret {
+  display: none;
+  margin-left: 6px;
+  vertical-align: 2px;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-bottom: 5px solid currentColor;
+}
+.toggle[aria-expanded="true"] .caret { display: inline-block; }
 .spacer { flex: 1; }
 .later { cursor: not-allowed; font-weight: 400; }
 .submit { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
