@@ -123,6 +123,12 @@ try {
   assert.equal(b.code, 0, b.stderr);
   const state = readState(sessionRef(cwd));
   assert.ok(state);
+  // Both share one DevTools port, so a second browser would go unseen there:
+  // what tells one session from two is that exactly one of them started it.
+  const reused = [a, b].filter((r) => /already open/.test(r.stdout));
+  const started = [a, b].filter((r) => !/already open/.test(r.stdout));
+  assert.equal(reused.length, 1, `expected one reuse:\n${a.stdout}\n${b.stdout}`);
+  assert.equal(Number(/\(pid (\d+)\)/.exec(started[0]!.stdout)?.[1]), state.pid);
   const p = await windowPage();
   assert.equal(cdp!.contexts().flatMap((c) => c.pages()).length, 1, 'two racing opens made one window');
   console.log(`race: two concurrent opens -> one session (pid ${state.pid}), one window`);
@@ -179,6 +185,10 @@ try {
   await barThere(p);
   assert.ok((await p.locator('gloss-bar .toggle').innerText()).includes('(1)'));
   assert.equal(await p.evaluate(() => document.querySelectorAll('gloss-bar').length), 1);
+  // Hydration that strips unknown children of <html> doesn't lose the bar.
+  await p.evaluate(() => document.querySelector('gloss-bar')!.remove());
+  await until('the bar to re-attach', () => p.evaluate(() => document.querySelectorAll('gloss-bar').length === 1));
+  await until('count 1 again', async () => (await p.locator('gloss-bar .toggle').innerText()).includes('(1)'));
   await p.goBack();
   await until('popstate url', () => p.url() === `${base}/`);
   await barThere(p);
