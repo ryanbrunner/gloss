@@ -181,7 +181,7 @@ npx tsx scripts/spikes/loop-check.ts   # the review loop: rounds, working, ready
 npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
 ```
 
-CI runs both spikes on every push and pull request, in
+CI runs all three spikes on every push and pull request, in
 `.github/workflows/ci.yml`.
 
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
