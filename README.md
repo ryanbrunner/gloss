@@ -75,13 +75,14 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - The bar lives in a shadow root on one `<gloss-bar>` element on `<html>`. Page
   CSS cannot reach into it and its CSS cannot leak out. The one change to the
   page's own styles is `html { margin-top: 44px }`, which pushes the page down
-  below the bar.
+  below the bar. Fixed and sticky elements placed from the top of the
+  viewport, such as a header, are moved down by the same 44px.
 
 ### Known gaps
 
-- A `position: fixed; top: 0` header does not move down and sits under the
-  bar. A sticky header starts below the bar but slides under it once you
-  scroll. Layouts sized to `100vh` overflow by 44px.
+- Layouts sized to `100vh` overflow by 44px.
+- A fixed or sticky element inside a web component's shadow root is not
+  moved, and sits under the bar.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
 
