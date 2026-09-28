@@ -120,6 +120,9 @@ npx tsx scripts/spikes/open-check.ts   # end to end, headless; needs Chromium
 npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
 ```
 
+CI runs both spikes on every push and pull request, in
+`.github/workflows/ci.yml`.
+
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
 reads `--port` and `PORT`. Query flags make each state of the bar reachable
 by URL, using the same bar with its comments kept in the page:
