@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { describe, test } from 'node:test';
-import { createDevServer, parsePort, renderPage, SEED_COMMENTS, STRICT_CSP } from './dev.js';
+import { demoStore } from '../src/bar/transport.js';
+import type { RoundState } from '../src/session/store.js';
+import { createDevServer, demoOptions, parsePort, renderPage, SEED_COMMENTS, STRICT_CSP } from './dev.js';
 
 describe('parsePort', () => {
   test('reads the single-dash -port Reeve passes', () => {
@@ -30,6 +32,8 @@ describe('parsePort', () => {
 
 const HTML = '<html><head><title>x</title></head><body><header>Storefront</header></body></html>';
 const q = (s: string) => new URLSearchParams(s);
+const mounted = (html: string) => JSON.parse(/GlossDemo\.mount\((.*)\);/.exec(html)![1]!.replace(/\\u003c/g, '<'));
+const pick = (s: RoundState) => ({ round: s.round, phase: s.phase, sent: s.comments.map((c) => c.sentIn) });
 
 describe('renderPage', () => {
   test('serves the storefront untouched by default', () => {
@@ -39,19 +43,43 @@ describe('renderPage', () => {
   test('?gloss inlines the bar and mounts it with no comments', () => {
     const { html } = renderPage(HTML, q('gloss'), 'var GlossDemo = {};');
     assert.match(html, /<script>var GlossDemo = \{\};<\/script>/);
-    assert.match(html, /GlossDemo\.mount\(\{"comments":\[\],"listOpen":false\}\)/);
+    assert.deepEqual(mounted(html), { round: { sent: [], comments: [] }, listOpen: false, confirmOpen: false });
     assert.ok(html.indexOf('GlossDemo.mount') < html.indexOf('</head>'));
   });
 
   test('&seed=2&list starts with two comments and the list open', () => {
-    const { html } = renderPage(HTML, q('gloss&seed=2&list'), '');
-    const options = JSON.parse(/GlossDemo\.mount\((.*)\);/.exec(html)![1]!.replace(/\\u003c/g, '<'));
-    assert.deepEqual(options, { comments: SEED_COMMENTS.slice(0, 2), listOpen: true });
+    const options = mounted(renderPage(HTML, q('gloss&seed=2&list'), '').html);
+    assert.deepEqual(options, { round: { sent: [], comments: SEED_COMMENTS.slice(0, 2) }, listOpen: true, confirmOpen: false });
   });
 
   test('keeps a seed count within the comments there are', () => {
-    const { html } = renderPage(HTML, q('gloss&seed=99'), '');
-    assert.equal(JSON.parse(/GlossDemo\.mount\((.*)\);/.exec(html)![1]!).comments.length, SEED_COMMENTS.length);
+    assert.equal(mounted(renderPage(HTML, q('gloss&seed=99'), '').html).round.comments.length, SEED_COMMENTS.length);
+  });
+
+  test('&sent=N sends the first N, and &seed follows on from them', () => {
+    const { round } = mounted(renderPage(HTML, q('gloss&sent=3&seed=1'), '').html);
+    assert.deepEqual(round, { sent: SEED_COMMENTS.slice(0, 3), comments: SEED_COMMENTS.slice(3, 4) });
+    const all = mounted(renderPage(HTML, q('gloss&sent=5&seed=5'), '').html).round;
+    assert.equal(all.sent.length + all.comments.length, SEED_COMMENTS.length);
+  });
+
+  test('&phase, &msg, &summary and &confirm reach every state of the bar', () => {
+    const working = mounted(renderPage(HTML, q('gloss&phase=working&msg=Tightening%20the%20header'), '').html);
+    assert.deepEqual(working.round, { sent: [], comments: [], phase: 'working', message: 'Tightening the header' });
+    const ready = mounted(renderPage(HTML, q('gloss&summary=Moved%20shipping&sent=2'), '').html);
+    assert.deepEqual(ready.round, { sent: SEED_COMMENTS.slice(0, 2), comments: [], summary: 'Moved shipping' });
+    assert.equal(mounted(renderPage(HTML, q('gloss&seed=2&confirm'), '').html).confirmOpen, true);
+    assert.equal(mounted(renderPage(HTML, q('gloss&phase=reviewing'), '').html).round.phase, undefined);
+  });
+
+  test('plays each demo round through the real store into the phase it asks for', () => {
+    const phase = (s: string) => demoStore(demoOptions(q(s)).round).snapshot();
+    assert.deepEqual(pick(phase('phase=submitted&sent=2')), { round: 2, phase: 'submitted', sent: [1, 1] });
+    assert.deepEqual(pick(phase('phase=working&msg=On%20it')), { round: 2, phase: 'working', sent: [1] });
+    assert.equal(phase('phase=working&msg=On%20it').message, 'On it');
+    assert.deepEqual(pick(phase('sent=3&seed=1')), { round: 3, phase: 'reviewing', sent: [1, 1, 2, null] });
+    assert.equal(phase('summary=Done&sent=2').summary, 'Done');
+    assert.deepEqual(pick(phase('phase=approved&sent=2')), { round: 2, phase: 'approved', sent: [1, 1] });
   });
 
   test('cannot be closed early by a </script> in the bundle', () => {

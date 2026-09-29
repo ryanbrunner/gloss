@@ -1,4 +1,4 @@
-import { BAR_HEIGHT } from './styles.js';
+import { BAR_HEIGHT, NARROW, STATUS_HEIGHT } from './styles.js';
 
 /**
  * Keeps an anchor jump, or anything else that scrolls an element into view,
@@ -10,11 +10,16 @@ import { BAR_HEIGHT } from './styles.js';
  * replacing it, so the target lands below both. The page's value is read with
  * the addition off, and read again after anything that can change it: a
  * stylesheet arriving late, a class or style change, or a breakpoint.
+ *
+ * Returns a way to say whether the status line is hanging under the bar. On a
+ * narrow viewport STATUS_OFFSET pushes the page down by that line as well, and
+ * a jump has to clear it too.
  */
-export function addScrollPadding(): void {
+export function addScrollPadding(): (status: boolean) => void {
   // The bar's height alone until the page's value can be read, so a jump
   // before then still clears the bar.
-  let rules = padding('auto');
+  let status = false;
+  let rules = padding('auto', status);
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(rules);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
@@ -28,7 +33,7 @@ export function addScrollPadding(): void {
     sheet.disabled = true;
     const own = getComputedStyle(html).scrollPaddingTop;
     sheet.disabled = false;
-    const text = padding(own);
+    const text = padding(own, status);
     if (text !== rules) sheet.replaceSync((rules = text));
   };
 
@@ -47,8 +52,18 @@ export function addScrollPadding(): void {
   window.addEventListener('resize', queue);
   window.addEventListener('load', queue);
   queue();
+
+  return (showing: boolean) => {
+    if (showing === status) return;
+    status = showing;
+    queue();
+  };
 }
 
 /** `auto` is no padding at all, and not a length `calc()` can add to. */
-const padding = (own: string) =>
-  `html{scroll-padding-top:${own === 'auto' ? `${BAR_HEIGHT}px` : `calc(${own} + ${BAR_HEIGHT}px)`}!important}`;
+const padding = (own: string, status: boolean) => {
+  const rule = (offset: number) =>
+    `html{scroll-padding-top:${own === 'auto' ? `${offset}px` : `calc(${own} + ${offset}px)`}!important}`;
+  // The status line only takes a line of its own on a narrow viewport.
+  return status ? `${rule(BAR_HEIGHT)}@media ${NARROW}{${rule(BAR_HEIGHT + STATUS_HEIGHT)}}` : rule(BAR_HEIGHT);
+};
