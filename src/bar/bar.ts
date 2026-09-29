@@ -1,5 +1,6 @@
 import { plural, type Comment, type RoundState } from '../session/store.js';
 import { keepPinnedClear } from './pinned.js';
+import { addScrollPadding } from './scroll-padding.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET, STATUS_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
 
@@ -20,8 +21,9 @@ import type { Transport } from './transport.js';
  * way it would an inline `<style>`, and its DOM is built node by node rather
  * than through `innerHTML`, for pages that enforce Trusted Types. The marks
  * it leaves on the page's own styles are PAGE_OFFSET, on a phone
- * STATUS_OFFSET while the status shows, and the offsets that keep the page's
- * fixed and sticky elements out from under it.
+ * STATUS_OFFSET while the status shows, its height added to the page's scroll
+ * padding, and the offsets that keep the page's fixed and sticky elements out
+ * from under it.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -48,9 +50,10 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // Pushed down straight away, before the page has painted, so the content
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
+  const showStatusPadding = addScrollPadding();
 
   const start = () => {
-    if (!document.querySelector(HOST_TAG)) new Bar(transport, options).attach();
+    if (!document.querySelector(HOST_TAG)) new Bar(transport, options, showStatusPadding).attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
@@ -115,6 +118,8 @@ class Bar {
   constructor(
     private readonly transport: Transport,
     options: BarOptions,
+    /** Tells scroll-padding.ts whether the status line is hanging under the bar. */
+    private readonly showStatusPadding: (status: boolean) => void,
   ) {
     this.listOpen = options.listOpen ?? false;
     this.confirming = false;
@@ -278,7 +283,9 @@ class Bar {
     this.status.title = title;
     this.status.dataset.phase = state.phase;
     const others = document.adoptedStyleSheets.filter((s) => s !== this.statusOffset);
-    document.adoptedStyleSheets = this.status.textContent ? [...others, this.statusOffset] : others;
+    const showing = Boolean(this.status.textContent);
+    document.adoptedStyleSheets = showing ? [...others, this.statusOffset] : others;
+    this.showStatusPadding(showing);
   }
 
   /** The unsent comments, which can still be deleted, then each round already sent, newest first. */
