@@ -4,7 +4,8 @@
  * it with a strict Content-Security-Policy.
  */
 * { box-sizing: border-box; }
-html { background: #f8f8f7; }
+/* Room for the 51px header, so Cart (2) does not jump the summary under it. */
+html { background: #f8f8f7; scroll-padding-top: 51px; }
 body {
   margin: 0;
   color: #1a1a1a;

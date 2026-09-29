@@ -2,21 +2,26 @@
 export const BAR_HEIGHT = 44;
 
 /**
- * The one change the bar makes to the page's own styles. Moving `html` down
- * moves everything in normal flow with it, and `scroll-padding-top` keeps an
- * anchor jump from landing under the bar. An element pinned to the viewport
- * does not move with it; pinned.ts moves those.
+ * The bar's change to the page's own layout. Moving `html` down moves
+ * everything in normal flow with it; scroll-padding.ts adds the bar's height
+ * to the page's own scroll padding, so an anchor jump lands below both. An
+ * element pinned to the viewport does not move with `html`; pinned.ts moves
+ * those.
  */
-export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
+export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important}`;
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
 
 /** The line the status takes under the bar on a phone, where the bar has no room for it. */
-const STATUS_HEIGHT = 24;
+export const STATUS_HEIGHT = 24;
 
-/** Added to PAGE_OFFSET while that line is showing, so it pushes the page down rather than covering it. */
-export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
+/**
+ * Added to PAGE_OFFSET while that line is showing, so it pushes the page down
+ * rather than covering it. The matching scroll padding is scroll-padding.ts's,
+ * which has to add it to whatever the page sets rather than replace it.
+ */
+export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
 
 /**
  * Reeve's dark palette, from reeve/packages/web/src/index.css, so the bar
