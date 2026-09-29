@@ -203,6 +203,12 @@ try {
   await until('the ?fixed page', () => pages[0]!.url().endsWith('/?fixed'));
   console.log('second open: reused the session and navigated its window');
 
+  // A fixed header is moved down out from under the bar.
+  const fixedHeaderTop = () =>
+    pages[0]!.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().top);
+  await until('the fixed header below the bar', async () => (await fixedHeaderTop()) === 44);
+  console.log('fixed header: moved down below the bar');
+
   // A strict CSP does not keep the bar out, or unstyled.
   assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
   const cspPage = await windowPage();
