@@ -51,25 +51,54 @@ const rpcCall = z.discriminatedUnion('method', [
   z.object({ method: z.literal('state') }),
   z.object({ method: z.literal('add'), body: z.string().max(20_000), pin: pinDraft.optional() }),
   z.object({ method: z.literal('remove'), id: z.string() }),
+  z.object({ method: z.literal('submit') }),
+  z.object({ method: z.literal('approve'), discardUnsent: z.boolean() }),
 ]);
 
 /** Takes a picture of a pinned element, and says where it put it, or nothing if it could not. */
 export type Capture = (pin: Pin) => Promise<string | undefined>;
 
+/** Where a call on the binding came from, as Playwright saw it rather than as the page says. */
+export interface RpcSource {
+  /** The URL of the page that made it. */
+  url: string;
+  /** Whether it came from the page itself rather than a frame inside it, where the bar never is. */
+  topFrame: boolean;
+}
+
 /**
  * What the bar asks of the session, answered with the round as it stands.
- * The page can call the binding too, so what it sends is checked.
+ * The call is JSON, as `sealBinding` in ../bar/transport.ts sends it. The page
+ * may still find a way to call the binding, so what it sends is checked, and
+ * nothing that changes the round is taken from a frame, or from a page that
+ * is not on http or https (a blank popup the page opened and scripts).
  */
-export async function handleRpc(store: CommentStore, call: unknown, capture?: Capture): Promise<RoundState> {
+export async function handleRpc(
+  store: CommentStore,
+  json: unknown,
+  from: RpcSource,
+  capture?: Capture,
+): Promise<RoundState> {
+  let call: unknown;
+  try {
+    call = typeof json === 'string' ? JSON.parse(json) : null;
+  } catch {
+    call = null;
+  }
   const parsed = rpcCall.safeParse(call);
   if (!parsed.success) throw new Error('Gloss did not understand that request');
-  const data = parsed.data;
+  const { data } = parsed;
+  if (data.method === 'state') return store.snapshot();
+  if (!from.topFrame || !/^https?:/.test(from.url)) throw new Error('Gloss takes changes only from the page under review');
   if (data.method === 'add') {
+    // The draft is the page's; the screenshot is the session's alone.
     const pin: Pin | undefined = data.pin && { ...data.pin };
     if (pin && data.body.trim() && capture) pin.screenshot = await capture(pin);
-    store.add(data.body, pin);
+    store.add(data.body, from.url, pin);
   }
   if (data.method === 'remove') store.remove(data.id);
+  if (data.method === 'submit') store.submit(from.url);
+  if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
   return store.snapshot();
 }
 
@@ -113,6 +142,8 @@ export interface SessionBrowser {
   /** The page most recently opened, where it is now. */
   currentUrl(): string | null;
   navigate(url: string): Promise<void>;
+  /** Reloads every page, so each shows the agent's latest. A page that cannot reload is left as it is. */
+  reload(): Promise<void>;
   /** Settles when the last page is closed or the browser goes away. */
   closed: Promise<void>;
   close(): Promise<void>;
@@ -145,7 +176,12 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
   });
   let shots = 0;
   await context.exposeBinding('__glossRpc', (source, call: unknown) =>
-    handleRpc(store, call, (pin) => screenshot(source.page, pin, options.shotsDir, `pin-${++shots}`)),
+    handleRpc(
+      store,
+      call,
+      { url: source.page.url(), topFrame: source.frame === source.page.mainFrame() },
+      (pin) => screenshot(source.page, pin, options.shotsDir, `pin-${++shots}`),
+    ),
   );
   await context.addInitScript({ content: await bundleBar('session') });
 
@@ -183,6 +219,9 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
       const page = current() ?? (await context.newPage());
       await page.bringToFront();
       await page.goto(to, { waitUntil: 'domcontentloaded' });
+    },
+    reload: async () => {
+      await Promise.all(context.pages().map((page) => page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})));
     },
     closed,
     close: () => browser.close().catch(() => {}),

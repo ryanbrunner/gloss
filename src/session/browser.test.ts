@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { handleRpc, visibleClip } from './browser.js';
+import { handleRpc, visibleClip, type RpcSource } from './browser.js';
 import { CommentStore, type PinDraft } from './store.js';
+
+const PAGE: RpcSource = { url: 'http://127.0.0.1:4400/', topFrame: true };
+const call = (store: CommentStore, c: unknown, from = PAGE, capture?: Parameters<typeof handleRpc>[3]) =>
+  handleRpc(store, JSON.stringify(c), from, capture);
 
 const draft = (values: Partial<PinDraft> = {}): PinDraft => ({
   url: 'http://127.0.0.1:4400/',
@@ -16,16 +20,47 @@ const draft = (values: Partial<PinDraft> = {}): PinDraft => ({
 describe('handleRpc', () => {
   test('adds, lists and removes general comments', async () => {
     const store = new CommentStore();
-    const added = await handleRpc(store, { method: 'add', body: 'Too tall' });
+    const added = await call(store, { method: 'add', body: 'Too tall' });
     assert.deepEqual(added.comments.map((c) => c.body), ['Too tall']);
-    assert.deepEqual(await handleRpc(store, { method: 'state' }), added);
-    assert.deepEqual((await handleRpc(store, { method: 'remove', id: added.comments[0]!.id })).comments, []);
+    assert.deepEqual(await call(store, { method: 'state' }), added);
+    assert.deepEqual((await call(store, { method: 'remove', id: added.comments[0]!.id })).comments, []);
+  });
+
+  test('adds a comment with the page it was written on, as Playwright saw it', async () => {
+    const store = new CommentStore();
+    const state = await call(store, { method: 'add', body: 'The header is too tall' });
+    assert.equal(state.comments[0]?.page, 'http://127.0.0.1:4400/');
+  });
+
+  test('submits, and approves only with discardUnsent when there is something unsent', async () => {
+    const store = new CommentStore();
+    await call(store, { method: 'add', body: 'one' });
+    assert.equal((await call(store, { method: 'submit' })).phase, 'submitted');
+    assert.equal(store.verdict()?.page, 'http://127.0.0.1:4400/');
+    store.ready(null);
+    await call(store, { method: 'add', body: 'two' });
+    await assert.rejects(call(store, { method: 'approve', discardUnsent: false }), /not sent yet/);
+    assert.equal((await call(store, { method: 'approve', discardUnsent: true })).phase, 'approved');
+  });
+
+  test('takes nothing that changes the round from a frame, or from a page off http', async () => {
+    const store = new CommentStore();
+    store.add('one');
+    const frame = { ...PAGE, topFrame: false };
+    const blank = { url: 'about:blank', topFrame: true };
+    for (const from of [frame, blank]) {
+      await assert.rejects(call(store, { method: 'submit' }, from), /only from the page under review/);
+      await assert.rejects(call(store, { method: 'approve', discardUnsent: true }, from), /only from the page/);
+      await assert.rejects(call(store, { method: 'add', body: 'x' }, from), /only from the page/);
+      assert.equal((await call(store, { method: 'state' }, from)).comments.length, 1);
+    }
+    assert.equal(store.snapshot().phase, 'reviewing');
   });
 
   test('adds a pinned comment with the screenshot the session took', async () => {
     const store = new CommentStore();
     const photographed: string[] = [];
-    const state = await handleRpc(store, { method: 'add', body: 'Total is wrong', pin: draft() }, async (pin) => {
+    const state = await call(store, { method: 'add', body: 'Total is wrong', pin: draft() }, PAGE, async (pin) => {
       photographed.push(pin.selector);
       return '/shots/pin-1.png';
     });
@@ -35,19 +70,29 @@ describe('handleRpc', () => {
 
   test('keeps the pin when there is no screenshot to be had', async () => {
     const store = new CommentStore();
-    const state = await handleRpc(store, { method: 'add', body: 'x', pin: draft() }, async () => undefined);
+    const state = await call(store, { method: 'add', body: 'x', pin: draft() }, PAGE, async () => undefined);
     assert.equal(state.comments[0]?.pin?.screenshot, undefined);
     assert.equal(state.comments[0]?.pin?.selector, draft().selector);
   });
 
   test('takes no screenshot for a comment with nothing in it', async () => {
     let shots = 0;
-    const state = await handleRpc(new CommentStore(), { method: 'add', body: '  ', pin: draft() }, async () => {
+    const state = await call(new CommentStore(), { method: 'add', body: '  ', pin: draft() }, PAGE, async () => {
       shots++;
       return 'x.png';
     });
     assert.equal(shots, 0);
     assert.deepEqual(state.comments, []);
+  });
+
+  test('sends a pinned comment on as a pinned comment, with its pin', async () => {
+    const store = new CommentStore();
+    await call(store, { method: 'add', body: 'Total is wrong', pin: draft() }, PAGE, async () => '/shots/pin-1.png');
+    await call(store, { method: 'add', body: 'The header is too tall' });
+    const verdict = (await call(store, { method: 'submit' }), store.verdict()!);
+    assert.deepEqual(verdict.comments.map((c) => c.kind), ['pinned', 'general']);
+    assert.deepEqual(verdict.comments[0]?.target, { ...draft(), screenshot: '/shots/pin-1.png' });
+    assert.equal(verdict.comments[1]?.target, null);
   });
 
   test('refuses a screenshot path, or a malformed pin, from the page', async () => {
@@ -58,8 +103,16 @@ describe('handleRpc', () => {
       { method: 'add', body: 'x', pin: { ...draft(), box: { x: 0, y: 0 } } },
       { method: 'nope' },
     ];
-    for (const call of bad) await assert.rejects(handleRpc(store, call), /did not understand/);
+    for (const c of bad) await assert.rejects(call(store, c), /did not understand/);
     assert.deepEqual(store.snapshot().comments, []);
+  });
+
+  test('refuses what it does not understand, including a call that is not JSON', async () => {
+    const store = new CommentStore();
+    await assert.rejects(handleRpc(store, { method: 'approve', discardUnsent: true }, PAGE), /did not understand/);
+    await assert.rejects(handleRpc(store, '{nope', PAGE), /did not understand/);
+    await assert.rejects(call(store, { method: 'approve' }), /did not understand/);
+    assert.equal(store.snapshot().phase, 'reviewing');
   });
 });
 

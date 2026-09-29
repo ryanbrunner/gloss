@@ -1,27 +1,37 @@
-import type { Comment, RoundState } from '../session/store.js';
-import { BAR_STYLES, NARROW, PAGE_OFFSET } from './styles.js';
+import { plural, type Comment, type RoundState } from '../session/store.js';
+import { keepPinnedClear } from './pinned.js';
+import { BAR_STYLES, NARROW, PAGE_OFFSET, STATUS_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
 
 /**
  * The Gloss bar: a strip across the top of the page under review, where the
- * reviewer writes the round's comments.
+ * reviewer writes the round's comments, submits them to Claude, and in the
+ * end approves. While Claude has the round, the bar says so and nothing can
+ * be submitted; when Claude is done, its summary is there to check against.
+ *
+ * Submit, Approve and the approve confirmation act only on a click the
+ * browser made (`isTrusted`). The page under review can reach into the
+ * shadow root, and its `button.click()` must not approve anything.
  *
  * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
  * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
  * `<body>` so a framework that owns the body never sees it. Its styles are
  * constructed stylesheets, which a strict CSP's `style-src` does not block the
  * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The one
- * mark it leaves on the page's own styles is PAGE_OFFSET.
+ * than through `innerHTML`, for pages that enforce Trusted Types. The marks
+ * it leaves on the page's own styles are PAGE_OFFSET, on a phone
+ * STATUS_OFFSET while the status shows, and the offsets that keep the page's
+ * fixed and sticky elements out from under it.
  */
 
 const HOST_TAG = 'gloss-bar';
 const MOUNTED = Symbol.for('gloss.bar');
-const LATER = 'Comes in a later card';
 
 export interface BarOptions {
   /** Open the comment list at once. The demo page uses it to show the list by URL. */
   listOpen?: boolean;
+  /** Open the discard-and-approve prompt at once, as the demo page does by URL. */
+  confirmOpen?: boolean;
 }
 
 /**
@@ -67,9 +77,10 @@ function h<K extends keyof HTMLElementTagNameMap>(
 class Bar {
   private readonly host = document.createElement(HOST_TAG);
   private readonly root = this.host.attachShadow({ mode: 'open' });
-  private state: RoundState = { round: 1, comments: [] };
+  private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, comments: [] };
   private listOpen: boolean;
 
+  private readonly bar = h('div', { class: 'bar', role: 'toolbar', 'aria-label': 'Gloss' });
   private readonly round = h('span', { class: 'round' });
   private readonly input = h('textarea', { rows: '1', 'aria-label': 'Add a general comment' });
   private readonly count = h('span');
@@ -81,8 +92,24 @@ class Bar {
     h('span', { class: 'caret', 'aria-hidden': 'true' }),
   );
   private readonly error = h('span', { class: 'error', role: 'status' });
-  private readonly note = h('span', { class: 'note', role: 'status' });
-  private noteTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly status = h('span', { class: 'status', role: 'status' });
+  private readonly add = h('button', { class: 'add', type: 'button' }, 'Add');
+  private readonly submit = h('button', { class: 'submit', type: 'button' }, 'Submit');
+  private readonly approve = h('button', { class: 'approve', type: 'button' }, 'Approve');
+  private readonly confirmCount = h('span');
+  private readonly confirmYes = h('button', { class: 'approve', type: 'button' }, 'Discard & approve');
+  private readonly confirmNo = h('button', { type: 'button' }, 'Cancel');
+  private readonly confirm = h(
+    'span',
+    { class: 'confirm', role: 'group', 'aria-label': 'Approve with unsent comments', hidden: '' },
+    h('span', { class: 'confirm-text' }, 'Approve and discard ', this.confirmCount, '?'),
+    this.confirmYes,
+    this.confirmNo,
+  );
+  private confirming: boolean;
+  private readonly confirmOnLoad: boolean;
+  /** Pushes the page down a little further while the status hangs under a narrow bar. */
+  private readonly statusOffset = sheet(STATUS_OFFSET);
   private readonly list = h('ul', { class: 'list', id: 'gloss-list', hidden: '' });
 
   constructor(
@@ -90,38 +117,47 @@ class Bar {
     options: BarOptions,
   ) {
     this.listOpen = options.listOpen ?? false;
+    this.confirming = false;
+    this.confirmOnLoad = options.confirmOpen ?? false;
   }
 
   attach(): void {
     this.root.adoptedStyleSheets = [sheet(BAR_STYLES)];
-    const add = h('button', { type: 'button' }, 'Add');
-    this.root.append(
-      h(
-        'div',
-        { class: 'bar', role: 'toolbar', 'aria-label': 'Gloss' },
-        h('span', { class: 'mark' }, 'Gloss'),
-        this.round,
-        this.input,
-        add,
-        this.toggle,
-        this.error,
-        h('span', { class: 'spacer' }),
-        this.note,
-        this.later('Submit', 'submit'),
-        this.later('Approve', 'approve'),
-      ),
-      this.list,
+    this.bar.append(
+      h('span', { class: 'mark' }, 'Gloss'),
+      this.round,
+      this.input,
+      this.add,
+      this.toggle,
+      this.error,
+      h('span', { class: 'spacer' }),
+      this.status,
+      this.submit,
+      this.approve,
+      this.confirm,
     );
+    this.root.append(this.bar, this.list);
 
-    add.addEventListener('click', () => this.addComment());
+    this.add.addEventListener('click', () => this.addComment());
     this.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
       e.preventDefault();
       this.addComment();
     });
     this.toggle.addEventListener('click', () => this.setListOpen(!this.listOpen));
+    this.submit.addEventListener('click', (e) => e.isTrusted && this.act(() => this.transport.submit()));
+    this.approve.addEventListener('click', (e) => {
+      if (!e.isTrusted) return;
+      // Unsent comments would go nowhere: say so, and let the reviewer choose.
+      if (this.unsent().length) this.setConfirming(true);
+      else this.act(() => this.transport.approve(false));
+    });
+    this.confirmYes.addEventListener('click', (e) => e.isTrusted && this.act(() => this.transport.approve(true)));
+    this.confirmNo.addEventListener('click', () => this.setConfirming(false));
     this.root.addEventListener('keydown', (e) => {
-      if ((e as KeyboardEvent).key === 'Escape') this.setListOpen(false);
+      if ((e as KeyboardEvent).key !== 'Escape') return;
+      this.setListOpen(false);
+      this.setConfirming(false);
     });
     // Typing in the bar is not typing in the page: a page's own shortcuts
     // ("/" to search, "j" for next) must not fire from the comment box.
@@ -138,9 +174,16 @@ class Bar {
     placeholder();
 
     this.keepAttached();
+    keepPinnedClear(this.host);
     this.transport.subscribe((s) => this.render(s));
     this.render(this.state);
-    this.transport.state().then((s) => this.render(s), (e: unknown) => this.fail(e));
+    this.transport.state().then(
+      (s) => {
+        this.confirming = this.confirmOnLoad;
+        this.render(s);
+      },
+      (e: unknown) => this.fail(e),
+    );
   }
 
   /**
@@ -177,7 +220,11 @@ class Bar {
   }
 
   private removeComment(id: string): void {
-    this.transport.remove(id).then((s) => this.render(s), (e: unknown) => this.fail(e));
+    this.act(() => this.transport.remove(id));
+  }
+
+  private act(change: () => Promise<RoundState>): void {
+    change().then((s) => this.render(s), (e: unknown) => this.fail(e));
   }
 
   private setListOpen(open: boolean): void {
@@ -185,26 +232,77 @@ class Bar {
     this.render(this.state);
   }
 
+  private setConfirming(open: boolean): void {
+    this.confirming = open;
+    this.render(this.state);
+  }
+
   private fail(e: unknown): void {
     this.error.textContent = e instanceof Error ? e.message : String(e);
   }
 
+  private unsent(): Comment[] {
+    return this.state.comments.filter((c) => c.sentIn === null);
+  }
+
   private render(state: RoundState): void {
     this.state = state;
+    const unsent = this.unsent();
+    const reviewing = state.phase === 'reviewing';
+    // A prompt about comments that have gone, or a round that is not the reviewer's, is no longer a question.
+    if (!unsent.length || !reviewing) this.confirming = false;
+
     this.error.textContent = '';
     this.round.textContent = `Round ${state.round}`;
-    this.count.textContent = `(${state.comments.length})`;
+    this.count.textContent = `(${unsent.length})`;
+    this.input.disabled = this.add.disabled = state.phase === 'approved';
+    this.submit.disabled = !reviewing || !unsent.length;
+    this.submit.title = !reviewing ? '' : unsent.length ? `Send ${plural(unsent.length, 'comment')} to Claude` : 'Add a comment to submit';
+    this.approve.disabled = !reviewing;
+    this.submit.hidden = this.approve.hidden = this.confirming || state.phase === 'approved';
+    this.confirm.hidden = !this.confirming;
+    this.bar.classList.toggle('confirming', this.confirming);
+    this.confirmCount.textContent = `${plural(unsent.length, 'unsent comment')}`;
+    this.renderStatus(state);
+
     this.toggle.setAttribute('aria-expanded', String(this.listOpen));
     this.list.hidden = !this.listOpen;
-    this.list.replaceChildren(
-      ...(state.comments.length
-        ? state.comments.map((c) => this.item(c))
-        : [h('li', { class: 'empty' }, 'No comments yet. Type one above and press Enter.')]),
-    );
+    this.list.replaceChildren(...this.items(state, unsent));
     this.place();
   }
 
+  /** Whose move it is, and what the agent last said. */
+  private renderStatus(state: RoundState): void {
+    const [text, title] = statusText(state);
+    this.status.textContent = this.confirming ? '' : text;
+    this.status.title = title;
+    this.status.dataset.phase = state.phase;
+    const others = document.adoptedStyleSheets.filter((s) => s !== this.statusOffset);
+    document.adoptedStyleSheets = this.status.textContent ? [...others, this.statusOffset] : others;
+  }
+
+  /** The unsent comments, which can still be deleted, then each round already sent, newest first. */
+  private items(state: RoundState, unsent: Comment[]): HTMLLIElement[] {
+    const items: HTMLLIElement[] = [];
+    if (state.summary) {
+      items.push(h('li', { class: 'summary' }, h('span', { class: 'label' }, `Claude, after round ${state.round - 1}`), state.summary));
+    }
+    items.push(...unsent.map((c) => this.item(c)));
+    if (!unsent.length) {
+      const empty = state.phase === 'approved' ? 'Approved. There is nothing more to send.' : 'No new comments. Type one above and press Enter.';
+      items.push(h('li', { class: 'empty' }, empty));
+    }
+    for (let round = state.round - 1; round >= 1; round--) {
+      const sent = state.comments.filter((c) => c.sentIn === round);
+      if (!sent.length) continue;
+      items.push(h('li', { class: 'group' }, `Sent in round ${round}`));
+      items.push(...sent.map((c) => this.item(c)));
+    }
+    return items;
+  }
+
   private item(comment: Comment): HTMLLIElement {
+    if (comment.sentIn !== null) return h('li', { class: 'item sent' }, h('span', { class: 'body' }, comment.body));
     const remove = h('button', { class: 'delete', type: 'button', 'aria-label': 'Delete comment', title: 'Delete' }, '×');
     remove.addEventListener('click', () => this.removeComment(comment.id));
     return h('li', { class: 'item' }, h('span', { class: 'body' }, comment.body), remove);
@@ -218,15 +316,19 @@ class Bar {
     // CSSOM rather than a style attribute, which `style-src` would refuse.
     this.list.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`;
   }
+}
 
-  /** Submit and Approve: there to be seen, and saying they come later when pressed. */
-  private later(label: string, kind: string): HTMLButtonElement {
-    const button = h('button', { class: `later ${kind}`, type: 'button', 'aria-disabled': 'true', title: LATER }, label);
-    button.addEventListener('click', () => {
-      this.note.textContent = `${label}: ${LATER.toLowerCase()}`;
-      clearTimeout(this.noteTimer);
-      this.noteTimer = setTimeout(() => (this.note.textContent = ''), 2500);
-    });
-    return button;
+/** The status strip's text, and the whole of it for a tooltip when the strip cuts it short. */
+export function statusText(state: RoundState): [text: string, title: string] {
+  const sent = state.round - 1;
+  switch (state.phase) {
+    case 'submitted':
+      return [`Sent round ${sent}, waiting for Claude`, ''];
+    case 'working':
+      return state.message ? [`Claude is working: ${state.message}`, state.message] : ['Claude is working…', ''];
+    case 'approved':
+      return ['Approved', ''];
+    case 'reviewing':
+      return state.summary ? [`Claude: ${state.summary}`, state.summary] : ['', ''];
   }
 }

@@ -1,6 +1,9 @@
 import { close } from './commands/close.js';
 import { open } from './commands/open.js';
+import { ready } from './commands/ready.js';
 import { status } from './commands/status.js';
+import { wait } from './commands/wait.js';
+import { working } from './commands/working.js';
 import { CliError, EXIT, note, print, usageError } from './output.js';
 import { runSession } from './session/run.js';
 
@@ -16,6 +19,21 @@ const USAGE = `Usage: gloss <command> [options]
   gloss close [--name N]
       End the session, and close its window.
 
+The review loop, for the agent:
+
+  gloss wait [--name N]
+      Block until the reviewer submits a round or approves, then print the
+      verdict as one JSON document on stdout (docs/verdict.md). Only
+      "approved": true is approval. Exit 1, with nothing on stdout, when
+      there is no verdict: no session, or it ended while waiting. Asked
+      again before \`working\` or \`ready\`, it prints the same round.
+  gloss working [message] [--name N]
+      Say the agent has the round. The bar shows Claude is working, with the
+      message, and the reviewer cannot submit or approve.
+  gloss ready [summary] [--name N]
+      Say the agent is done. The window reloads, the bar shows the summary,
+      and the next round is the reviewer's.
+
 --name   more than one session from one directory: each name is a session of
          its own.
 
@@ -30,6 +48,9 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   open,
   status,
   close,
+  wait,
+  working,
+  ready,
   // Not for people: the session process `open` starts. Left out of the usage.
   __session: runSession,
 };

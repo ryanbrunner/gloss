@@ -1,6 +1,6 @@
 import { CliError } from '../output.js';
 import type { SessionState } from './state.js';
-import type { RoundState } from './store.js';
+import type { Phase, RoundState } from './store.js';
 
 /**
  * The CLI's side of a running session: authed requests to its loopback API.
@@ -39,6 +39,9 @@ export const isHealthy = async (state: SessionState) => (await health(state)) !=
 
 const authHeaders = (state: SessionState) => ({ authorization: `Bearer ${state.token}` });
 
+/** The session did not answer at all, as against answering no. */
+export class Unreachable extends CliError {}
+
 async function request<T>(state: SessionState, path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
@@ -47,7 +50,7 @@ async function request<T>(state: SessionState, path: string, init: RequestInit =
       headers: { ...authHeaders(state), ...(init.body ? { 'content-type': 'application/json' } : {}) },
     });
   } catch (e) {
-    throw new CliError(`could not reach the Gloss session at ${sessionUrl(state)}: ${String((e as { cause?: unknown }).cause ?? e)}`);
+    throw new Unreachable(`could not reach the Gloss session at ${sessionUrl(state)}: ${String((e as { cause?: unknown }).cause ?? e)}`);
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) throw new CliError(body.error ?? `HTTP ${res.status} from the session's ${path}`);
@@ -59,4 +62,10 @@ export const api = {
   navigate: (state: SessionState, url: string) =>
     request<{ ok: true; url: string }>(state, '/api/navigate', { method: 'POST', body: JSON.stringify({ url }) }),
   close: (state: SessionState) => request<{ ok: true }>(state, '/api/close', { method: 'POST' }),
+  /** The verdict, or `{pending: true}` if the reviewer has not answered within `waitSeconds`. Checked by the caller. */
+  verdict: (state: SessionState, waitSeconds: number) => request<unknown>(state, `/api/verdict?wait=${waitSeconds}`),
+  working: (state: SessionState, message: string | null) =>
+    request<{ ok: true; phase: Phase }>(state, '/api/working', { method: 'POST', body: JSON.stringify({ message }) }),
+  ready: (state: SessionState, summary: string | null) =>
+    request<{ ok: true; phase: Phase }>(state, '/api/ready', { method: 'POST', body: JSON.stringify({ summary }) }),
 };

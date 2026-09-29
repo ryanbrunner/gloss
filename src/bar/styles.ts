@@ -4,13 +4,19 @@ export const BAR_HEIGHT = 44;
 /**
  * The one change the bar makes to the page's own styles. Moving `html` down
  * moves everything in normal flow with it, and `scroll-padding-top` keeps an
- * anchor jump from landing under the bar. A `position: fixed; top: 0` header
- * does not move and ends up under the bar; that is a known gap.
+ * anchor jump from landing under the bar. An element pinned to the viewport
+ * does not move with it; pinned.ts moves those.
  */
 export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT}px!important}`;
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
+
+/** The line the status takes under the bar on a phone, where the bar has no room for it. */
+const STATUS_HEIGHT = 24;
+
+/** Added to PAGE_OFFSET while that line is showing, so it pushes the page down rather than covering it. */
+export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important;scroll-padding-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
 
 /**
  * Reeve's dark palette, from reeve/packages/web/src/index.css, so the bar
@@ -95,8 +101,10 @@ button {
   white-space: nowrap;
   cursor: pointer;
 }
-button:not(.later):hover { border-color: #3a4350; }
+button:not(:disabled):hover { border-color: #3a4350; }
 button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
+button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
+[hidden] { display: none !important; }
 .toggle[aria-expanded="true"] { border-color: ${SKY}; }
 /* Drawn rather than a ▴, which some system fonts render as a dot. */
 .caret {
@@ -109,12 +117,38 @@ button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
 }
 .toggle[aria-expanded="true"] .caret { display: inline-block; }
 .spacer { flex: 1; }
-.later { cursor: not-allowed; font-weight: 400; }
 .submit { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
 .approve { color: ${EMERALD}; border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.07); }
 .error { color: #f87171; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.note { color: ${MUTED}; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.error:empty, .note:empty { display: none; }
+.status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 520px;
+  color: ${MUTED};
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status[data-phase="reviewing"] { color: ${TEXT}; }
+.status[data-phase="working"] { color: ${SKY}; }
+.status[data-phase="approved"] { color: ${EMERALD}; font-weight: 600; }
+/* A pulse while Claude has the round, so the bar reads as busy at a glance. */
+.status[data-phase="working"]::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: gloss-pulse 1.2s ease-in-out infinite;
+}
+@keyframes gloss-pulse { 50% { opacity: 0.25; } }
+.error:empty, .status:empty { display: none; }
+.confirm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.confirm-text { color: ${TEXT}; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 .list {
   position: fixed;
@@ -151,10 +185,41 @@ button:focus-visible { outline: 2px solid ${SKY}; outline-offset: 1px; }
 }
 .delete:hover { color: ${TEXT}; }
 .empty { padding: 10px 13px; color: ${MUTED}; }
+.group {
+  padding: 12px 13px 4px;
+  border-top: 1px solid ${EDGE};
+  color: ${MUTED};
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.group + .item { border-top: none; }
+.sent { color: ${MUTED}; }
+.summary { padding: 10px 13px; border-bottom: 1px solid ${EDGE}; background: rgba(56, 189, 248, 0.06); white-space: pre-wrap; }
+.summary .label { display: block; margin-bottom: 3px; color: ${SKY}; font-size: 11px; font-weight: 600; }
 
 @media ${NARROW} {
   .bar { gap: 6px; padding: 0 8px; }
   .round, .toggle-label { display: none; }
   button { padding: 0 8px; }
+  /* The prompt needs the whole bar: the comment box steps aside while it is up. */
+  .confirming textarea, .confirming .add, .confirming .toggle { display: none; }
+  .confirming .spacer { display: none; }
+  .confirm { flex: 1; justify-content: flex-end; }
+  .confirm-text { white-space: normal; font-size: 11px; line-height: 13px; }
+  /* No room in the bar itself: the status hangs just under it, a line of its own. */
+  .status {
+    position: fixed;
+    top: ${BAR_HEIGHT}px;
+    left: 0;
+    right: 0;
+    max-width: none;
+    height: ${STATUS_HEIGHT}px;
+    padding: 0 10px;
+    line-height: ${STATUS_HEIGHT - 1}px;
+    background: ${INK};
+    border-bottom: 1px solid ${EDGE};
+  }
 }
 `;
