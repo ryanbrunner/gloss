@@ -1,10 +1,12 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { z } from 'zod';
 import { bundleBar } from '../bar/bundle.js';
+import { BAR_HEIGHT } from '../bar/styles.js';
 import { STATE_EVENT } from '../bar/transport.js';
 import { firstLine } from './server.js';
-import type { CommentStore, RoundState } from './store.js';
+import type { Box, CommentStore, Pin, RoundState } from './store.js';
 
 /**
  * The browser half of a session: a Playwright Chromium whose every page gets
@@ -32,13 +34,29 @@ export function chromiumMissing(): string | null {
 
 export class BrowserUnavailable extends Error {}
 
+const box = z.object({ x: z.number(), y: z.number(), width: z.number().min(0), height: z.number().min(0) });
+
+/** A pin as the page sends it: everything but the screenshot, which only the session takes. */
+const pinDraft = z.strictObject({
+  url: z.string().max(4_000),
+  selector: z.string().min(1).max(4_000),
+  tag: z.string().max(100),
+  text: z.string().max(1_000),
+  box,
+  viewport: z.object({ width: z.number().min(0), height: z.number().min(0) }),
+  quote: z.string().max(4_000).optional(),
+});
+
 const rpcCall = z.discriminatedUnion('method', [
   z.object({ method: z.literal('state') }),
-  z.object({ method: z.literal('add'), body: z.string().max(20_000) }),
+  z.object({ method: z.literal('add'), body: z.string().max(20_000), pin: pinDraft.optional() }),
   z.object({ method: z.literal('remove'), id: z.string() }),
   z.object({ method: z.literal('submit') }),
   z.object({ method: z.literal('approve'), discardUnsent: z.boolean() }),
 ]);
+
+/** Takes a picture of a pinned element, and says where it put it, or nothing if it could not. */
+export type Capture = (pin: Pin) => Promise<string | undefined>;
 
 /** Where a call on the binding came from, as Playwright saw it rather than as the page says. */
 export interface RpcSource {
@@ -55,7 +73,12 @@ export interface RpcSource {
  * nothing that changes the round is taken from a frame, or from a page that
  * is not on http or https (a blank popup the page opened and scripts).
  */
-export function handleRpc(store: CommentStore, json: unknown, from: RpcSource): RoundState {
+export async function handleRpc(
+  store: CommentStore,
+  json: unknown,
+  from: RpcSource,
+  capture?: Capture,
+): Promise<RoundState> {
   let call: unknown;
   try {
     call = typeof json === 'string' ? JSON.parse(json) : null;
@@ -67,11 +90,52 @@ export function handleRpc(store: CommentStore, json: unknown, from: RpcSource): 
   const { data } = parsed;
   if (data.method === 'state') return store.snapshot();
   if (!from.topFrame || !/^https?:/.test(from.url)) throw new Error('Gloss takes changes only from the page under review');
-  if (data.method === 'add') store.add(data.body, from.url);
+  if (data.method === 'add') {
+    // The draft is the page's; the screenshot is the session's alone.
+    const pin: Pin | undefined = data.pin && { ...data.pin };
+    if (pin && data.body.trim() && capture) pin.screenshot = await capture(pin);
+    store.add(data.body, from.url, pin);
+  }
   if (data.method === 'remove') store.remove(data.id);
   if (data.method === 'submit') store.submit(from.url);
   if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
   return store.snapshot();
+}
+
+/**
+ * The part of an element's box to photograph, in the viewport's coordinates:
+ * what is on screen and not under the bar. Null when none of it is.
+ */
+export function visibleClip(
+  pin: Pin,
+  view: { scrollX: number; scrollY: number; width: number; height: number },
+): Box | null {
+  const left = Math.max(pin.box.x - view.scrollX, 0);
+  const top = Math.max(pin.box.y - view.scrollY, BAR_HEIGHT);
+  const right = Math.min(pin.box.x - view.scrollX + pin.box.width, view.width);
+  const bottom = Math.min(pin.box.y - view.scrollY + pin.box.height, view.height);
+  if (right - left < 1 || bottom - top < 1) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * Photographs a pinned element on the page that pinned it, while it is still
+ * where the reviewer saw it. The bar hides its own markers for the moment
+ * this takes, so the picture is of the page alone.
+ */
+async function screenshot(page: Page, pin: Pin, dir: string, name: string): Promise<string | undefined> {
+  try {
+    const view = await page.evaluate(() => ({ scrollX, scrollY, width: innerWidth, height: innerHeight }));
+    const clip = visibleClip(pin, view);
+    if (!clip) return undefined;
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${name}.png`);
+    await page.screenshot({ path, clip });
+    return path;
+  } catch (e) {
+    console.error(`[gloss] could not photograph ${pin.selector}: ${firstLine(e)}`);
+    return undefined;
+  }
 }
 
 export interface SessionBrowser {
@@ -89,6 +153,8 @@ export interface BrowserOptions {
   headless: boolean;
   /** A DevTools port, so the end-to-end spike can look inside the window. */
   cdpPort?: number;
+  /** Where pinned elements' screenshots go. */
+  shotsDir: string;
 }
 
 export async function openBrowser(url: string, store: CommentStore, options: BrowserOptions): Promise<SessionBrowser> {
@@ -108,8 +174,14 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     viewport: options.headless ? { width: 1280, height: 800 } : null,
     ignoreHTTPSErrors: true,
   });
+  let shots = 0;
   await context.exposeBinding('__glossRpc', (source, call: unknown) =>
-    handleRpc(store, call, { url: source.page.url(), topFrame: source.frame === source.page.mainFrame() }),
+    handleRpc(
+      store,
+      call,
+      { url: source.page.url(), topFrame: source.frame === source.page.mainFrame() },
+      (pin) => screenshot(source.page, pin, options.shotsDir, `pin-${++shots}`),
+    ),
   );
   await context.addInitScript({ content: await bundleBar('session') });
 

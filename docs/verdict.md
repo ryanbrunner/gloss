@@ -61,23 +61,59 @@ for a non-zero exit go to stderr.
 | `page` | The page the reviewer was on when they submitted or approved, or `null`. |
 | `comments` | The comments sent in **this round only**. Earlier rounds are never sent again. Empty on approval. |
 | `comments[].id` | Unique within the session. |
-| `comments[].kind` | `"general"`. `"pinned"` is reserved; see below. |
+| `comments[].kind` | `"general"`, or `"pinned"` for a comment on one element; see below. |
 | `comments[].body` | What the reviewer wrote, trimmed. May hold newlines. |
 | `comments[].page` | The page the reviewer was on when they wrote it, or `null`. |
 | `comments[].createdAt` | Milliseconds since the epoch. |
 | `comments[].sentIn` | The round it went out in, always the same as `round`. |
-| `comments[].target` | `null` for a general comment. |
+| `comments[].target` | The element a pinned comment points at, and `null` for a general one; see below. |
 
 The objects are open: fields may be added in version 1, and a consumer must
 ignore any it does not know.
 
-### Reserved: pinned comments
+### Pinned comments
 
-Version 1 writes only `"kind": "general"` with `"target": null`. Comments
-pinned to an element will arrive as `"kind": "pinned"` with `target` set to an
-object describing the element, without a new version. A version 1 consumer
-must accept both and may treat a pinned comment as a general one about its
-target.
+A comment the reviewer made on one element arrives as `"kind": "pinned"` with
+`target` set to an object describing that element, so an agent that cannot see
+the screen can find the code that draws it:
+
+```json
+{
+  "id": "c2",
+  "kind": "pinned",
+  "body": "This price is wrong.",
+  "page": "http://localhost:3000/cart",
+  "createdAt": 1767000001000,
+  "sentIn": 1,
+  "target": {
+    "url": "http://localhost:3000/cart",
+    "selector": "#summary > p:nth-of-type(3)",
+    "tag": "p",
+    "text": "Total $43.20",
+    "box": { "x": 900, "y": 300, "width": 200, "height": 20 },
+    "viewport": { "width": 1280, "height": 800 },
+    "quote": "$43.20",
+    "screenshot": "/Users/you/.gloss/shots/<session>/<pid>/pin-1.png"
+  }
+}
+```
+
+| `target` | |
+| --- | --- |
+| `url` | The page as it was when the comment was made. |
+| `selector` | A CSS selector that matched this one element when it was picked. |
+| `tag` | The element's tag name. |
+| `text` | Its visible text, squeezed to one line and cut short. |
+| `box` | Where it was, in CSS pixels from the top left of the document. |
+| `viewport` | The window's size then, since a layout can depend on it. |
+| `quote` | The words the reviewer selected, when they commented on a selection. Absent otherwise. |
+| `screenshot` | A PNG of the element, taken by the session rather than the page. Absent when none could be taken. |
+
+The screenshot belongs to the session that wrote the verdict and is deleted
+when that session stops, so read it while the review is open. `target` is open
+like every other object here: fields may be added, so read the ones you know.
+A version 1 consumer must accept both kinds, and may treat a pinned comment as
+a general one about its target.
 
 ## Asking twice gets the same round
 

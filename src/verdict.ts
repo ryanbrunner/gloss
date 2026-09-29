@@ -19,7 +19,7 @@ export const verdictCommentSchema = z
     id: z.string().describe('Unique within the session.'),
     kind: z
       .enum(['general', 'pinned'])
-      .describe('`general` is the only kind written in version 1. `pinned` is reserved for comments on an element.'),
+      .describe('`general` is a comment on the page as a whole; `pinned` is one about an element on it.'),
     body: z.string().describe('What the reviewer wrote, trimmed. May hold newlines.'),
     page: z.string().nullable().describe('The page the reviewer was on when they wrote it.'),
     createdAt: z.number().describe('When it was written, in milliseconds since the epoch.'),
@@ -27,7 +27,13 @@ export const verdictCommentSchema = z
     target: z
       .record(z.string(), z.unknown())
       .nullable()
-      .describe('What a pinned comment points at. Null for a general comment; its shape arrives with pinning.'),
+      .describe(
+        'What a pinned comment points at, and null for a general comment: the element\'s `url`, a CSS ' +
+          '`selector` that matched it, its `tag`, visible `text`, `box` and the `viewport` it was measured in, ' +
+          'the `quote` the reviewer selected, and a `screenshot` of it. The screenshot is a path belonging to ' +
+          'the session that wrote the verdict, and it is deleted when that session stops. More fields may be ' +
+          'added, so read the ones you know.',
+      ),
   })
   .describe('One comment, sent in this round.');
 

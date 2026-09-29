@@ -1,4 +1,4 @@
-import { CommentStore, type Phase, type RoundState } from '../session/store.js';
+import { CommentStore, type Phase, type PinDraft, type RoundState } from '../session/store.js';
 
 /**
  * How the bar reaches whatever holds the round. The bar does not know which
@@ -7,7 +7,8 @@ import { CommentStore, type Phase, type RoundState } from '../session/store.js';
  */
 export interface Transport {
   state(): Promise<RoundState>;
-  add(body: string): Promise<RoundState>;
+  /** A general comment, or with a pin, one about an element on the page. */
+  add(body: string, pin?: PinDraft): Promise<RoundState>;
   remove(id: string): Promise<RoundState>;
   submit(): Promise<RoundState>;
   /** Refused while there are unsent comments, unless `discardUnsent` says to drop them. */
@@ -19,7 +20,7 @@ export interface Transport {
 /** The request the binding carries, as JSON. See `handleRpc` in ../session/browser.ts. */
 export type RpcCall =
   | { method: 'state' }
-  | { method: 'add'; body: string }
+  | { method: 'add'; body: string; pin?: PinDraft }
   | { method: 'remove'; id: string }
   | { method: 'submit' }
   | { method: 'approve'; discardUnsent: boolean };
@@ -125,7 +126,7 @@ export function bindingTransport(rpc: Rpc | null): Transport {
   const call = (c: RpcCall) => (rpc ? rpc(c) : Promise.reject(new Error('the Gloss session is not connected')));
   return {
     state: () => call({ method: 'state' }),
-    add: (body) => call({ method: 'add', body }),
+    add: (body, pin) => call(pin ? { method: 'add', body, pin } : { method: 'add', body }),
     remove: (id) => call({ method: 'remove', id }),
     submit: () => call({ method: 'submit' }),
     approve: (discardUnsent) => call({ method: 'approve', discardUnsent }),
@@ -147,7 +148,8 @@ export interface DemoRound {
 
 /**
  * The demo page's transport: the same store the session uses, kept in the
- * page. With nobody to pick a round up, a submitted one stays submitted.
+ * page. With nobody to pick a round up, a submitted one stays submitted, and
+ * with no session to take them, its pins have no screenshots.
  */
 export function memoryTransport(seed: DemoRound = {}): Transport {
   const store = demoStore(seed);
@@ -158,7 +160,7 @@ export function memoryTransport(seed: DemoRound = {}): Transport {
   };
   return {
     state: async () => store.snapshot(),
-    add: (body) => act(() => store.add(body, page())),
+    add: (body, pin) => act(() => store.add(body, page(), pin)),
     remove: (id) => act(() => store.remove(id)),
     submit: () => act(() => store.submit(page())),
     approve: (discardUnsent) => act(() => store.approve(page(), { discardUnsent })),
