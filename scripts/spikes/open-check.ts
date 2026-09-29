@@ -187,14 +187,6 @@ try {
   assert.deepEqual(await comments(), ['Cart count is wrong', 'line one\nline two']);
   console.log('comments: added with Enter, Add and Shift+Enter; deleted from the list; read back from /api/state');
 
-  // Submit and Approve are there, and only say they come later.
-  // Forced: Playwright will not click an aria-disabled button, which is the point of it.
-  await page.getByRole('button', { name: 'Submit' }).click({ force: true });
-  assert.match(await page.locator('gloss-bar .note').innerText(), /later card/);
-  const after = (await (await apiState()).json()) as RoundState;
-  assert.equal(after.round, 1);
-  assert.equal(after.comments.length, 2);
-
   // A reload loses nothing: the comments are the session's, not the page's.
   await page.reload();
   await page.locator('gloss-bar .bar').waitFor();

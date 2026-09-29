@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "gloss",
+  "owner": {
+    "name": "Ryan Brunner"
+  },
+  "plugins": [
+    {
+      "name": "gloss",
+      "description": "Review a running web app in a browser with a feedback bar on top, and have Claude apply each round of comments until you approve.",
+      "source": "./plugin",
+      "category": "development"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "approved": {
+      "type": "boolean",
+      "description": "True only when the reviewer pressed Approve."
+    },
+    "round": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The round this answers. Two verdicts with the same round are the same verdict."
+    },
+    "page": {
+      "description": "The page the reviewer was on when they submitted or approved.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique within the session."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "general",
+              "pinned"
+            ],
+            "description": "`general` is the only kind written in version 1. `pinned` is reserved for comments on an element."
+          },
+          "body": {
+            "type": "string",
+            "description": "What the reviewer wrote, trimmed. May hold newlines."
+          },
+          "page": {
+            "description": "The page the reviewer was on when they wrote it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "number",
+            "description": "When it was written, in milliseconds since the epoch."
+          },
+          "sentIn": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The round it went out in: always the round of the verdict it is in."
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a pinned comment points at. Null for a general comment; its shape arrives with pinning."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "page",
+          "createdAt",
+          "sentIn",
+          "target"
+        ],
+        "additionalProperties": {},
+        "description": "One comment, sent in this round."
+      },
+      "description": "The comments sent in this round and no other. Empty on approval."
+    }
+  },
+  "required": [
+    "version",
+    "approved",
+    "round",
+    "page",
+    "comments"
+  ],
+  "additionalProperties": {},
+  "title": "Gloss verdict, version 1",
+  "description": "What `gloss wait` prints on stdout when the reviewer submits a round or approves."
+}
