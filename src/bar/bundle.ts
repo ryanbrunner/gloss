@@ -26,7 +26,12 @@ const ENTRIES: Record<BarMode, string> = {
     import { mountBar } from './bar.js';
     import { memoryTransport } from './transport.js';
     export function mount(options) {
-      mountBar(memoryTransport(options.round), { listOpen: options.listOpen, confirmOpen: options.confirmOpen });
+      mountBar(memoryTransport(options.round), {
+        listOpen: options.listOpen,
+        confirmOpen: options.confirmOpen,
+        mode: options.mode,
+        pick: options.pick,
+      });
     }
   `,
 };
