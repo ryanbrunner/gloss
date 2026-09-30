@@ -92,7 +92,7 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 | Route | |
 | --- | --- |
 | `GET /api/health` | `{ok, pid, url}`: the page the window is on now |
-| `GET /api/state` | `{round, phase, message, summary, comments: [{id, body, createdAt, page, sentIn}]}` |
+| `GET /api/state` | `{round, phase, message, summary, comments: [{id, body, createdAt, page, sentIn, pin?}]}` |
 | `GET /api/verdict?wait=N` | the verdict, or `{pending: true}` after N seconds (at most 30); 409 while working, 410 once the session is ending |
 | `POST /api/working` | `{message}`: the agent has the round |
 | `POST /api/ready` | `{summary}`: the agent is done; reloads every page |
@@ -101,11 +101,28 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
-`null` while it is unsent.
+`null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
+`tag`, `text`, `box` and the `viewport`, and the path of its `screenshot`.
 
 ## The bar
 
 - Type a comment and press Enter or Add. Shift+Enter adds a new line.
+- **Interact** and **Select**, beside the round, are the tools. In Interact
+  the page works as usual. In Select, the page's links and buttons do nothing:
+  the element under the pointer is outlined, with its tag and size, and a
+  click opens a comment box beside it, headed with the element's tag and text.
+  Enter or **Add** pins the comment to the element; the session keeps a
+  selector for it and a screenshot of it, taken with the outline and markers
+  hidden. Select stays on after Add or **Cancel**, for the next element, until
+  you press Escape (which closes an open box first) or Interact. On a phone
+  the tools are one crosshair button that turns Select on and off. They are
+  disabled once the review is approved.
+- Each pinned comment gets a numbered marker on its element's top right
+  corner, which follows it as the page scrolls; hover it to see the comment
+  and outline the element. The list shows the same number with the element's
+  tag and text. A marker for an unsent comment stays where the element was if
+  its selector stops finding it. Once a round is sent, its markers are dimmed,
+  and shown only where the selector still finds a visible element.
 - **Comments (n)** counts the comments not yet sent. The list shows those
   first, each with a delete button, then every earlier round under "Sent in
   round N", dimmed and read-only, so you can check what was asked.
@@ -133,6 +150,11 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - Layouts sized to `100vh` overflow by 44px.
 - A fixed or sticky element inside a web component's shadow root is not
   moved, and sits under the bar.
+- An element inside a web component's shadow root is pinned as the
+  component itself.
+- A pin's selector is the path to the element when it was picked
+  (`#summary > p:nth-of-type(3)`). After the agent's changes it may find a
+  different element, and a sent pin's dimmed marker then sits on that one.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
 - **The page under review shares a JavaScript realm with the bar.** It is the
@@ -149,7 +171,7 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 
 ## Why Playwright, not a proxy or an iframe
 
-To pin comments to elements later on, the bar needs to reach the page's DOM.
+To pin comments to elements, the bar needs to reach the page's DOM.
 A cross-origin iframe can't do that, and `X-Frame-Options` or a CSP can refuse
 framing altogether. That leaves two choices: a proxy that injects the bar
 into the HTML it serves, or a browser that injects it for us. Gloss drives
@@ -189,7 +211,9 @@ CI runs all three spikes on every push and pull request, in
 
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
 reads `--port` and `PORT`. Query flags make each state of the bar reachable
-by URL, using the same bar with its comments kept in the page:
+by URL, using the same bar with its comments kept in the page. `&pins=N` pins
+the first N comments, sent ones first, and `&pick=N` picks the Nth of the
+same elements; both take numbers, since a selector's `#` would end the query:
 
 | URL | |
 | --- | --- |
@@ -202,6 +226,10 @@ by URL, using the same bar with its comments kept in the page:
 | `/?gloss&summary=…&sent=2` | back with the reviewer, showing Claude's summary |
 | `/?gloss&seed=2&confirm` | the discard-and-approve prompt |
 | `/?gloss&phase=approved&sent=2` | approved |
+| `/?gloss&select` | Select mode, nothing picked |
+| `/?gloss&select&pick=2` | Select mode, commenting on the order total |
+| `/?gloss&seed=3&pins=3` | three comments pinned to storefront elements, with markers |
+| `/?gloss&sent=2&seed=1&pins=3` | two sent pins, dimmed, beside a new one |
 | `/?fixed` | a `position: fixed` header |
 | `/?csp` | served with a strict Content-Security-Policy |
 
