@@ -1,5 +1,7 @@
 import { plural, type Comment, type RoundState } from '../session/store.js';
+import { h, sendOnEnter, sheet } from './dom.js';
 import { keepPinnedClear } from './pinned.js';
+import { createPicker, type Picker } from './picker.js';
 import { addScrollPadding } from './scroll-padding.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET, STATUS_OFFSET } from './styles.js';
 import type { Transport } from './transport.js';
@@ -51,34 +53,21 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
   const showStatusPadding = addScrollPadding();
+  // Listening before the page's scripts do, so a click in Select mode is the bar's first.
+  let bar: Bar | undefined;
+  const picker = createPicker((e) => bar !== undefined && e.composedPath().includes(bar.host));
 
   const start = () => {
-    if (!document.querySelector(HOST_TAG)) new Bar(transport, options, showStatusPadding).attach();
+    if (document.querySelector(HOST_TAG)) return;
+    bar = new Bar(transport, options, showStatusPadding, picker);
+    bar.attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 }
 
-function sheet(css: string): CSSStyleSheet {
-  const s = new CSSStyleSheet();
-  s.replaceSync(css);
-  return s;
-}
-
-/** One element, its attributes and its children. */
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string> = {},
-  ...children: Array<Node | string>
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  el.append(...children);
-  return el;
-}
-
 class Bar {
-  private readonly host = document.createElement(HOST_TAG);
+  readonly host = document.createElement(HOST_TAG);
   private readonly root = this.host.attachShadow({ mode: 'open' });
   private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, comments: [] };
   private listOpen: boolean;
@@ -120,6 +109,8 @@ class Bar {
     options: BarOptions,
     /** Tells scroll-padding.ts whether the status line is hanging under the bar. */
     private readonly showStatusPadding: (status: boolean) => void,
+    /** Select mode's listeners on the page, there since before the page's own. */
+    private readonly picker: Picker,
   ) {
     this.listOpen = options.listOpen ?? false;
     this.confirming = false;
@@ -144,11 +135,7 @@ class Bar {
     this.root.append(this.bar, this.list);
 
     this.add.addEventListener('click', () => this.addComment());
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-      e.preventDefault();
-      this.addComment();
-    });
+    sendOnEnter(this.input, () => this.addComment());
     this.toggle.addEventListener('click', () => this.setListOpen(!this.listOpen));
     this.submit.addEventListener('click', (e) => e.isTrusted && this.act(() => this.transport.submit()));
     this.approve.addEventListener('click', (e) => {
