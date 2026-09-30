@@ -77,6 +77,24 @@ export const BAR_STYLES = `
   font-size: 12px;
   white-space: nowrap;
 }
+/* Interact and Select, as one segmented control. */
+.tools { display: flex; flex: none; border: 1px solid ${EDGE}; border-radius: 6px; overflow: hidden; }
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 0;
+  background: ${PANEL};
+  color: ${MUTED};
+}
+.tool + .tool { border-left: 1px solid ${EDGE}; }
+.tool svg { flex: none; }
+.tool[aria-pressed="true"] { background: rgba(56, 189, 248, 0.12); color: ${SKY}; }
+.tool:not(:disabled):hover { color: ${TEXT}; }
+.tool[aria-pressed="true"]:not(:disabled):hover { color: ${SKY}; }
 textarea {
   flex: 0 1 400px;
   min-width: 60px;
@@ -205,6 +223,21 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .group + .item { border-top: none; }
 .sent { color: ${MUTED}; }
+/* A pinned comment: its marker's number, and the element under the comment. */
+.num {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: ${SKY};
+  color: ${INK};
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.sent .num { background: ${MUTED}; opacity: 0.7; }
+.meta { display: block; margin-top: 3px; color: ${MUTED}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .summary { padding: 10px 13px; border-bottom: 1px solid ${EDGE}; background: rgba(56, 189, 248, 0.06); white-space: pre-wrap; }
 .summary .label { display: block; margin-bottom: 3px; color: ${SKY}; font-size: 11px; font-weight: 600; }
 
@@ -273,8 +306,13 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media ${NARROW} {
   .bar { gap: 6px; padding: 0 8px; }
-  .round, .toggle-label { display: none; }
+  .mark, .round, .toggle-label { display: none; }
   button { padding: 0 8px; }
+  /* The tools become one icon button, Select, pressed while it is on. */
+  .tools { border: none; }
+  .tool.interact, .tool-label { display: none; }
+  .tool.select { width: 30px; height: 30px; justify-content: center; padding: 0; border: 1px solid ${EDGE}; border-radius: 6px; }
+  .confirming .tools { display: none; }
   /* The prompt needs the whole bar: the comment box steps aside while it is up. */
   .confirming textarea, .confirming .add, .confirming .toggle { display: none; }
   .confirming .spacer { display: none; }
