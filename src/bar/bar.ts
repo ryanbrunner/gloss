@@ -1,6 +1,5 @@
 import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
 import { h, icon, sendOnEnter, sheet } from './dom.js';
-import { samePage } from './geometry.js';
 import { Overlay } from './overlay.js';
 import { keepPinnedClear } from './pinned.js';
 import { createPicker, type Picker } from './picker.js';
@@ -379,7 +378,7 @@ class Bar {
     this.place();
   }
 
-  /** The tool in use, and the markers on the elements pinned on this page. */
+  /** The tool in use, and the markers on pinned elements, which the overlay shows on their own page only. */
   private renderMode(state: RoundState): void {
     // Nothing more can be commented on, and the page's clicks must not stay dead with the tools disabled.
     if (state.phase === 'approved') this.mode = 'interact';
@@ -392,11 +391,7 @@ class Bar {
 
     const numbers = pinNumbers(state.comments);
     this.overlay.setMarkers(
-      state.comments.flatMap((c) =>
-        c.pin && samePage(c.pin.url, location.href)
-          ? [{ n: numbers.get(c.id)!, body: c.body, pin: c.pin, sent: c.sentIn !== null }]
-          : [],
-      ),
+      state.comments.flatMap((c) => (c.pin ? [{ n: numbers.get(c.id)!, body: c.body, pin: c.pin, sent: c.sentIn !== null }] : [])),
     );
   }
 

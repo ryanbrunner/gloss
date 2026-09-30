@@ -1,6 +1,6 @@
 import type { Pin, PinDraft } from '../session/store.js';
 import { h, sendOnEnter } from './dom.js';
-import { placePopover, type Rect } from './geometry.js';
+import { placePopover, samePage, type Rect } from './geometry.js';
 import { BAR_HEIGHT } from './styles.js';
 import { resolvePin } from './target.js';
 
@@ -178,12 +178,15 @@ function place(box: HTMLElement, el: Element | null): Rect | null {
 }
 
 /**
- * Where a marker goes: its element, as the selector finds it now. A comment
+ * Where a marker goes: nowhere on another page, which a client-side route
+ * change can make this one without the bar hearing of it; otherwise on its
+ * element, as the selector finds it now. A comment
  * not yet sent was made moments ago, so while its selector finds nothing its
  * marker stays where the element was. A sent one is history, shown only
  * where its element is still there to see.
  */
 function markerRect(marker: Marker): Rect | null {
+  if (!samePage(marker.pin.url, location.href)) return null;
   const el = resolvePin(marker.pin);
   if (el) {
     const rect = el.getBoundingClientRect();
