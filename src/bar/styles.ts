@@ -34,6 +34,7 @@ const TEXT = '#e6edf3';
 const MUTED = '#8b949e';
 const SKY = '#38bdf8';
 const EMERALD = '#34d399';
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 
 /**
  * Everything inside the shadow root. `:host` starts from `all: initial`, with
@@ -54,6 +55,8 @@ export const BAR_STYLES = `
 }
 * { box-sizing: border-box; }
 .bar {
+  position: relative;
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -62,7 +65,7 @@ export const BAR_STYLES = `
   background: ${INK};
   border-bottom: 1px solid ${EDGE};
   color: ${TEXT};
-  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.35 ${FONT};
   -webkit-font-smoothing: antialiased;
 }
 .mark { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
@@ -74,6 +77,24 @@ export const BAR_STYLES = `
   font-size: 12px;
   white-space: nowrap;
 }
+/* Interact and Select, as one segmented control. */
+.tools { display: flex; flex: none; border: 1px solid ${EDGE}; border-radius: 6px; overflow: hidden; }
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 0;
+  background: ${PANEL};
+  color: ${MUTED};
+}
+.tool + .tool { border-left: 1px solid ${EDGE}; }
+.tool svg { flex: none; }
+.tool[aria-pressed="true"] { background: rgba(56, 189, 248, 0.12); color: ${SKY}; }
+.tool:not(:disabled):hover { color: ${TEXT}; }
+.tool[aria-pressed="true"]:not(:disabled):hover { color: ${SKY}; }
 textarea {
   flex: 0 1 400px;
   min-width: 60px;
@@ -122,7 +143,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .toggle[aria-expanded="true"] .caret { display: inline-block; }
 .spacer { flex: 1; }
-.submit { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
+.submit, .send { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
 .approve { color: ${EMERALD}; border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.07); }
 .error { color: #f87171; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .status {
@@ -157,6 +178,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .list {
   position: fixed;
+  z-index: 5;
   top: ${BAR_HEIGHT + 4}px;
   width: min(420px, calc(100vw - 16px));
   max-height: calc(100vh - ${BAR_HEIGHT + 16}px);
@@ -169,7 +191,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: 8px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   color: ${TEXT};
-  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.35 ${FONT};
   -webkit-font-smoothing: antialiased;
 }
 .list[hidden] { display: none; }
@@ -201,13 +223,96 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .group + .item { border-top: none; }
 .sent { color: ${MUTED}; }
+/* A pinned comment: its marker's number, and the element under the comment. */
+.num {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: ${SKY};
+  color: ${INK};
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.sent .num { background: ${MUTED}; opacity: 0.7; }
+.meta { display: block; margin-top: 3px; color: ${MUTED}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .summary { padding: 10px 13px; border-bottom: 1px solid ${EDGE}; background: rgba(56, 189, 248, 0.06); white-space: pre-wrap; }
 .summary .label { display: block; margin-bottom: 3px; color: ${SKY}; font-size: 11px; font-weight: 600; }
 
+/*
+ * Drawn over the page: the outline in Select mode, the numbered markers, and
+ * the comment box. Under the bar and the list, which they may slide beneath
+ * as the page scrolls; never in the way of the pointer, but for the markers
+ * and the box.
+ */
+.highlight, .marker, .composer { position: fixed; }
+.highlight {
+  z-index: 1;
+  pointer-events: none;
+  border: 2px solid ${SKY};
+  border-radius: 3px;
+  background: rgba(56, 189, 248, 0.1);
+}
+.highlight.picked { background: rgba(56, 189, 248, 0.16); }
+.chip {
+  position: absolute;
+  left: -2px;
+  bottom: calc(100% + 3px);
+  display: flex;
+  gap: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: ${INK};
+  color: ${SKY};
+  font: 11px/16px ${FONT};
+  white-space: nowrap;
+}
+.chip-tag { font-weight: 600; }
+.low .chip { top: 2px; bottom: auto; left: 2px; }
+.marker {
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: ${SKY};
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: ${INK};
+  font: 700 10px/16px ${FONT};
+  text-align: center;
+  cursor: default;
+}
+.marker.sent { background: ${MUTED}; opacity: 0.55; }
+.composer {
+  z-index: 3;
+  width: min(320px, calc(100vw - 16px));
+  padding: 10px;
+  background: ${PANEL};
+  border: 1px solid ${EDGE};
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: ${TEXT};
+  font: 13px/1.35 ${FONT};
+  -webkit-font-smoothing: antialiased;
+}
+.composer-heading { margin-bottom: 8px; color: ${MUTED}; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer textarea { display: block; width: 100%; height: 64px; background: ${INK}; white-space: pre-wrap; overflow-y: auto; }
+.composer-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+/* Out of the session's screenshot of a pinned element, for the moment it takes. */
+.capturing { visibility: hidden !important; }
+
 @media ${NARROW} {
   .bar { gap: 6px; padding: 0 8px; }
-  .round, .toggle-label { display: none; }
+  .mark, .round, .toggle-label { display: none; }
   button { padding: 0 8px; }
+  /* The tools become one icon button, Select, pressed while it is on. */
+  .tools { border: none; }
+  .tool.interact, .tool-label { display: none; }
+  .tool.select { width: 30px; height: 30px; justify-content: center; padding: 0; border: 1px solid ${EDGE}; border-radius: 6px; }
+  .confirming .tools { display: none; }
   /* The prompt needs the whole bar: the comment box steps aside while it is up. */
   .confirming textarea, .confirming .add, .confirming .toggle { display: none; }
   .confirming .spacer { display: none; }

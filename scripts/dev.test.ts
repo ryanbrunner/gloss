@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { describe, test } from 'node:test';
 import { demoStore } from '../src/bar/transport.js';
 import type { RoundState } from '../src/session/store.js';
-import { createDevServer, demoOptions, parsePort, renderPage, SEED_COMMENTS, STRICT_CSP } from './dev.js';
+import { createDevServer, demoOptions, parsePort, renderPage, SEED_COMMENTS, SEED_TARGETS, STRICT_CSP } from './dev.js';
 
 describe('parsePort', () => {
   test('reads the single-dash -port Reeve passes', () => {
@@ -80,6 +80,38 @@ describe('renderPage', () => {
     assert.deepEqual(pick(phase('sent=3&seed=1')), { round: 3, phase: 'reviewing', sent: [1, 1, 2, null] });
     assert.equal(phase('summary=Done&sent=2').summary, 'Done');
     assert.deepEqual(pick(phase('phase=approved&sent=2')), { round: 2, phase: 'approved', sent: [1, 1] });
+  });
+
+  test('&pins=N pins the first N seeded comments, sent ones first, and no more than there are', () => {
+    assert.equal(SEED_TARGETS.length, SEED_COMMENTS.length);
+    const { round } = mounted(renderPage(HTML, q('gloss&sent=2&seed=1&pins=3'), '').html);
+    assert.deepEqual(round, { sent: SEED_COMMENTS.slice(0, 2), comments: SEED_COMMENTS.slice(2, 3), targets: SEED_TARGETS.slice(0, 3) });
+    assert.equal(mounted(renderPage(HTML, q('gloss&seed=2&pins=9'), '').html).round.targets.length, 2);
+    assert.equal(mounted(renderPage(HTML, q('gloss&pins=3'), '').html).round.targets, undefined);
+  });
+
+  test('&select starts in Select mode, and &pick=N with the Nth target picked', () => {
+    assert.equal(mounted(renderPage(HTML, q('gloss&select'), '').html).mode, 'select');
+    const picked = mounted(renderPage(HTML, q('gloss&select&pick=2'), '').html);
+    assert.deepEqual({ mode: picked.mode, pick: picked.pick }, { mode: 'select', pick: '#summary > p:nth-of-type(3)' });
+    assert.equal(mounted(renderPage(HTML, q('gloss&pick=1'), '').html).mode, 'select');
+    const none = mounted(renderPage(HTML, q('gloss&pick=99'), '').html);
+    assert.ok(!('pick' in none) && !('mode' in none));
+  });
+
+  test('pins the demo round\'s comments to the page, sent ones too', () => {
+    const page = 'http://127.0.0.1:4400/?gloss';
+    const store = (s: string) => demoStore(demoOptions(q(s)).round, page).snapshot();
+    const pins = store('sent=2&seed=2&pins=3').comments.map((c) => c.pin && { url: c.pin.url, selector: c.pin.selector, sent: c.sentIn });
+    assert.deepEqual(pins, [
+      { url: page, selector: SEED_TARGETS[0]!.selector, sent: 1 },
+      { url: page, selector: SEED_TARGETS[1]!.selector, sent: 1 },
+      { url: page, selector: SEED_TARGETS[2]!.selector, sent: null },
+      undefined,
+    ]);
+    // The comment that stands in for a round goes unpinned; the seed's own takes the first target.
+    const working = store('phase=working&seed=1&pins=1').comments;
+    assert.deepEqual(working.map((c) => c.pin?.selector), [undefined, SEED_TARGETS[0]!.selector]);
   });
 
   test('cannot be closed early by a </script> in the bundle', () => {
