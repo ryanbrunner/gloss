@@ -1,6 +1,6 @@
-# The source of truth for ryanbrunner/homebrew-tap's Formula/gloss.rb. The
-# release workflow (.github/workflows/release.yml) copies it there with the
-# url and sha256 lines filled in for the tag; edit it here, never in the tap.
+# Made from packaging/homebrew/gloss.rb in ryanbrunner/gloss, whose release
+# workflow fills in url and sha256 for each tag and pushes the result to
+# ryanbrunner/homebrew-tap. Change it there: the tap's copy is overwritten.
 class Gloss < Formula
   desc "Review a running web app in a browser and hand the comments to Claude"
   homepage "https://github.com/ryanbrunner/gloss"
