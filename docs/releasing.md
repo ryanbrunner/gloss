@@ -12,8 +12,9 @@ template's `url` and `sha256` for the tag and pushes the result to the tap as
 ## A release
 
 1. Bump `version` in both `package.json` and `plugin/.claude-plugin/plugin.json`,
-   and run `npm install --package-lock-only` so the lockfile follows.
-   `npm test` fails while the two differ.
+   and the tag in the `url` of `packaging/homebrew/gloss.rb`. Run
+   `npm install --package-lock-only` so the lockfile follows. `npm test`
+   fails while the three differ.
 2. Merge that to main.
 3. Tag the merge and push the tag:
 
