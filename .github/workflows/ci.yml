@@ -26,7 +26,7 @@ jobs:
 
   # Gloss as Homebrew installs it: packed through the `files` allowlist,
   # installed with no install scripts, and run from node_modules rather than
-  # the checkout, on the oldest node it supports and on Homebrew's.
+  # the checkout, on the repo's node (.tool-versions) and on Homebrew's.
   packed:
     runs-on: ubuntu-latest
     timeout-minutes: 10
