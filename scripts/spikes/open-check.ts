@@ -6,8 +6,8 @@
  *
  * Chromium runs headless (`GLOSS_HEADLESS=1`) with a DevTools port
  * (`GLOSS_CDP_PORT`), and the state files go to a temporary `GLOSS_HOME`, so
- * none of it touches a real session. Needs Chromium: `npx playwright install
- * chromium`. Not part of `npm test`, so CI without a browser stays green.
+ * none of it touches a real session. Needs Chromium: `gloss install-chromium`.
+ * Not part of `npm test`, so CI without a browser stays green.
  * `--headed` shows the real window instead, for a few seconds.
  *
  *   npx tsx scripts/spikes/open-check.ts [--headed]
@@ -407,9 +407,9 @@ try {
   // No Chromium: a clear message, exit 1, and no session left behind.
   const missing = await gloss(['open', `${base}/`], { PLAYWRIGHT_BROWSERS_PATH: join(root, 'no-browsers') });
   assert.equal(missing.code, 1);
-  assert.match(missing.stderr, /npx playwright install chromium/);
+  assert.match(missing.stderr, /Run `gloss install-chromium`/);
   assert.ok(!existsSync(ref.statePath));
-  console.log('no chromium: exits 1 and says to run npx playwright install chromium');
+  console.log('no chromium: exits 1 and says to run gloss install-chromium');
 
   console.log('\nopen-check: all good');
 } finally {
