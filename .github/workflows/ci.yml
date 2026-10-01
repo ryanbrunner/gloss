@@ -59,3 +59,14 @@ jobs:
           test "$code" = 1
           test "$(jq -r .running <<<"$out")" = false
 
+  # The formula template, linted and audited from a tap, as the published
+  # copy is: Homebrew's rules for formulae go by where the file sits.
+  formula:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew tap-new --no-git local/gloss-check
+      - run: cp packaging/homebrew/gloss.rb "$(brew --repository local/gloss-check)/Formula/gloss.rb"
+      - run: brew style local/gloss-check/gloss
+      - run: brew audit --strict --formula local/gloss-check/gloss
