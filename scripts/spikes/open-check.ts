@@ -234,8 +234,10 @@ try {
         panel: panel && [panel.top, panel.bottom - innerHeight],
       };
     });
-  assert.deepEqual((await fullHeight()).body, [44, 0]);
-  assert.equal((await fullHeight()).scrolls, 0, 'the page itself scrolls');
+  await until('the app shell between the bar and the bottom, the page not scrolling', async () => {
+    const { body, scrolls } = await fullHeight();
+    return body[0] === 44 && body[1] === 0 && scrolls === 0;
+  });
   await pages[0]!.evaluate(() => {
     const style = document.createElement('style');
     style.textContent = '.gloss-check-panel{position:fixed;top:0;right:0;width:8px;height:100vh}';
