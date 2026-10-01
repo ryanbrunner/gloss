@@ -15,10 +15,11 @@ import type { Transport } from './transport.js';
  * mark it leaves on the page's own styles is PAGE_OFFSET.
  *
  * The shadow root is closed. The page is the code under review, and with an
- * open root it could rewrite a comment in the box before the reviewer sends
- * it, or relabel a button. That holds because the session runs the bar in a
- * world of its own (see ../session/channel.ts), where the page cannot patch
- * `attachShadow` before the bar calls it.
+ * open root it could read the bar, relabel its buttons or set what is in the
+ * comment box. That holds because the session runs the bar in a world of its
+ * own (see ../session/channel.ts), where the page cannot patch `attachShadow`
+ * before the bar calls it. `document.execCommand` still edits the box while
+ * it has focus.
  */
 
 const HOST_TAG = 'gloss-bar';

@@ -74,8 +74,8 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   every tab shows the same list.
 - The bar lives in a closed shadow root on one `<gloss-bar>` element on
   `<html>`. Page CSS cannot reach into it and its CSS cannot leak out, and the
-  page's scripts cannot read it or change what is in it. The one change to
-  the page's own styles is `html { margin-top: 44px }`, which pushes the page
+  page's scripts cannot reach its elements. The one change to the page's own
+  styles is `html { margin-top: 44px }`, which pushes the page
   down below the bar.
 
 ### Known gaps
@@ -87,7 +87,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   logins or extensions.
 - The page cannot call the session or reach inside the bar, but it can still
   hide the `<gloss-bar>` element, or draw something that looks like the bar
-  over it. Nothing inside a page can rule that out.
+  over it. Nothing inside a page can rule that out. While the comment box has
+  focus, the page can also change what is in it with `document.execCommand`,
+  which edits whatever is focused.
 
 ## Why Playwright, not a proxy or an iframe
 
