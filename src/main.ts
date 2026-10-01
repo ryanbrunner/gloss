@@ -6,6 +6,7 @@ import { wait } from './commands/wait.js';
 import { working } from './commands/working.js';
 import { CliError, EXIT, note, print, usageError } from './output.js';
 import { runSession } from './session/run.js';
+import { VERSION } from './version.js';
 
 const USAGE = `Usage: gloss <command> [options]
 
@@ -18,6 +19,8 @@ const USAGE = `Usage: gloss <command> [options]
       Whether this directory has a session: exit 0 if it does, 1 if not.
   gloss close [--name N]
       End the session, and close its window.
+  gloss --version
+      Print Gloss's version.
 
 The review loop, for the agent:
 
@@ -58,6 +61,7 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 async function main(argv: string[]): Promise<void> {
   const [first] = argv;
   if (first === undefined || first === 'help' || first === '--help' || first === '-h') return print(USAGE);
+  if (first === 'version' || first === '--version' || first === '-v') return print(VERSION);
   const command = Object.hasOwn(COMMANDS, first) ? COMMANDS[first] : undefined;
   if (!command) throw usageError(`unknown command '${first}'`);
   if (argv.includes('--help') || argv.includes('-h')) return print(USAGE);
