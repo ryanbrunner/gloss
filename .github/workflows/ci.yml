@@ -23,3 +23,39 @@ jobs:
         if: ${{ !cancelled() }}
       - run: npx tsx scripts/spikes/nav-check.ts
         if: ${{ !cancelled() }}
+
+  # Gloss as Homebrew installs it: packed through the `files` allowlist,
+  # installed with no install scripts, and run from node_modules rather than
+  # the checkout, on the oldest node it supports and on Homebrew's.
+  packed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node-version-file: .tool-versions
+          - node-version: 26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          node-version-file: ${{ matrix.node-version-file }}
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+      - run: npm install --global --ignore-scripts --prefix "$RUNNER_TEMP/g" "$RUNNER_TEMP"/gloss-*.tgz
+      - name: gloss --version prints the package's version
+        run: |
+          version=$("$RUNNER_TEMP/g/bin/gloss" --version)
+          echo "$version"
+          test "$version" = "$(node -p 'require("./package.json").version')"
+      # Exit 1 alone could as well be a crash, so the answer is checked too.
+      - name: gloss status says there is no session
+        working-directory: ${{ runner.temp }}
+        run: |
+          code=0
+          out=$(GLOSS_HOME="$RUNNER_TEMP/home" "$RUNNER_TEMP/g/bin/gloss" status --json) || code=$?
+          echo "$out"
+          test "$code" = 1
+          test "$(jq -r .running <<<"$out")" = false
+
