@@ -7,6 +7,7 @@ import { addScrollPadding } from './scroll-padding.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET, STATUS_OFFSET } from './styles.js';
 import { pinDraftFor, resolvePin } from './target.js';
 import type { Transport } from './transport.js';
+import { fitViewportUnits } from './viewport.js';
 
 /**
  * The Gloss bar: a strip across the top of the page under review, where the
@@ -32,7 +33,8 @@ import type { Transport } from './transport.js';
  * it leaves on the page's own styles are PAGE_OFFSET, on a phone
  * STATUS_OFFSET while the status shows, its height added to the page's scroll
  * padding, the offsets that keep the page's fixed and sticky elements out
- * from under it, and in Select mode a crosshair cursor.
+ * from under it, the `vh` lengths fitViewportUnits shortens to match, and in
+ * Select mode a crosshair cursor.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -76,6 +78,7 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
   const showStatusPadding = addScrollPadding();
+  fitViewportUnits();
   // Listening before the page's scripts do, so a click in Select mode is the bar's first.
   let bar: Bar | undefined;
   const picker = createPicker((e) => bar !== undefined && e.composedPath().includes(bar.host));
