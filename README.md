@@ -91,8 +91,8 @@ To pin comments to elements later on, the bar needs to reach the page's DOM.
 A cross-origin iframe can't do that, and `X-Frame-Options` or a CSP can refuse
 framing altogether. That leaves two choices: a proxy that injects the bar
 into the HTML it serves, or a browser that injects it for us. Gloss drives
-Chromium with Playwright, and registers the bar with `addInitScript` and
-`exposeBinding` on the browser context:
+Chromium with Playwright, and puts the bar on every tab over CDP, as a script
+and a binding in an isolated world of their own:
 
 - **The page is untouched.** It loads from its real origin. A proxy would
   have to decompress and rewrite HTML and absolute URLs, relay the dev
@@ -104,6 +104,13 @@ Chromium with Playwright, and registers the bar with `addInitScript` and
   `fetch`, so neither `style-src` nor `connect-src` gets in the way.
 - **It follows you.** New tabs, client-side navigation and full reloads all
   get the bar again.
+- **The page can't speak for you.** The page under review is the code
+  Claude is editing. The bar's script and its binding to the session live
+  in a world the page shares the DOM with but none of the JavaScript, so
+  nothing the page runs can call the session. Playwright's own
+  `exposeBinding` can't promise that: it hangs the binding on the page's
+  window, and hiding it there still leaves `__playwright__binding__`, which
+  any script can call.
 - **HTTPS dev hosts load**, with `ignoreHTTPSErrors`, as in Reeve's screenshots.
 
 The cost is the Chromium download and a window that isn't your everyday

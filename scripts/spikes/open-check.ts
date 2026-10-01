@@ -152,6 +152,15 @@ try {
   assert.equal(layout.headerBackground, 'rgb(255, 255, 255)');
   console.log(`bar: 44px on <html>, storefront header at ${layout.headerTop}px`);
 
+  // The page under review cannot reach the session: neither the binding nor
+  // Playwright's channel beneath one is on its window.
+  const reach = await page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>;
+    return [w.__glossRpc, w.__glossReceive, w.__playwright__binding__, w.__playwright__binding__controller__].map((v) => typeof v);
+  });
+  assert.deepEqual(reach, ['undefined', 'undefined', 'undefined', 'undefined']);
+  console.log('isolation: no Gloss or Playwright binding on the page\'s window');
+
   // Adding: Enter, the Add button, and Shift+Enter for a newline.
   const box = page.locator('gloss-bar textarea');
   await box.fill('The header is too tall');
@@ -200,6 +209,25 @@ try {
   await page.locator('gloss-bar .bar').waitFor();
   await waitForCount(page, 2);
   console.log('reload: the bar came back with both comments');
+
+  // A tab the page opens gets a bar of its own, and the two tell each other
+  // of their changes.
+  const [popup] = await Promise.all([page.context().waitForEvent('page'), page.evaluate(() => void window.open(location.href))]);
+  await popup.locator('gloss-bar .bar').waitFor();
+  await waitForCount(popup, 2);
+  await popup.locator('gloss-bar textarea').fill('From the second tab');
+  await popup.locator('gloss-bar textarea').press('Enter');
+  await waitForCount(page, 3);
+  await page.locator('gloss-bar textarea').fill('From the first tab');
+  await page.locator('gloss-bar textarea').press('Enter');
+  await waitForCount(popup, 4);
+  await popup.close();
+  await page.getByRole('button', { name: /Comments/ }).click();
+  await page.locator('gloss-bar .item').nth(3).getByRole('button', { name: 'Delete comment' }).click();
+  await page.locator('gloss-bar .item').nth(2).getByRole('button', { name: 'Delete comment' }).click();
+  await waitForCount(page, 2);
+  await page.getByRole('button', { name: /Comments/ }).click();
+  console.log('second tab: a popup got the bar, and each tab heard of the other\'s comment');
 
   // A second open from the same directory moves the same window.
   const again = await gloss(['open', `${base}/?fixed`]);

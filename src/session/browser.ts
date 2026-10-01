@@ -1,10 +1,9 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser, type Page } from 'playwright';
-import { z } from 'zod';
 import { bundleBar } from '../bar/bundle.js';
-import { STATE_EVENT } from '../bar/transport.js';
+import { attachBar, type BarChannel } from './channel.js';
 import { firstLine } from './server.js';
-import type { CommentStore, RoundState } from './store.js';
+import type { CommentStore } from './store.js';
 
 /**
  * The browser half of a session: a Playwright Chromium whose every page gets
@@ -13,10 +12,11 @@ import type { CommentStore, RoundState } from './store.js';
  * Playwright rather than a proxy that rewrites the dev server's HTML. The page
  * loads from its real origin, untouched: no decompressing and rewriting
  * responses, no relaying HMR websockets, no stripping CSP or X-Frame-Options.
- * An init script runs whatever the page's CSP says, and the bar talks to the
- * session through an exposed binding rather than `fetch`, so `connect-src`
- * cannot cut it off either. Registered on the context, both follow the
- * reviewer into new tabs and across reloads.
+ * A script added over CDP runs whatever the page's CSP says, and the bar
+ * talks to the session through a binding rather than `fetch`, so
+ * `connect-src` cannot cut it off either. Both live in a world of their own
+ * (see ./channel.ts), and follow the reviewer into new tabs and across
+ * reloads.
  *
  * The session process owns the browser, because a Chromium Playwright
  * launched dies with the process that launched it.
@@ -31,24 +31,6 @@ export function chromiumMissing(): string | null {
 }
 
 export class BrowserUnavailable extends Error {}
-
-const rpcCall = z.discriminatedUnion('method', [
-  z.object({ method: z.literal('state') }),
-  z.object({ method: z.literal('add'), body: z.string().max(20_000) }),
-  z.object({ method: z.literal('remove'), id: z.string() }),
-]);
-
-/**
- * What the bar asks of the session, answered with the round as it stands.
- * The page can call the binding too, so what it sends is checked.
- */
-export function handleRpc(store: CommentStore, call: unknown): RoundState {
-  const parsed = rpcCall.safeParse(call);
-  if (!parsed.success) throw new Error('Gloss did not understand that request');
-  if (parsed.data.method === 'add') store.add(parsed.data.body);
-  if (parsed.data.method === 'remove') store.remove(parsed.data.id);
-  return store.snapshot();
-}
 
 export interface SessionBrowser {
   /** The page most recently opened, where it is now. */
@@ -82,18 +64,28 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     viewport: options.headless ? { width: 1280, height: 800 } : null,
     ignoreHTTPSErrors: true,
   });
-  await context.exposeBinding('__glossRpc', (_source, call: unknown) => handleRpc(store, call));
-  await context.addInitScript({ content: await bundleBar('session') });
+  const script = await bundleBar('session');
+  const channels = new Map<Page, Promise<BarChannel>>();
+  const attach = (page: Page) => {
+    let channel = channels.get(page);
+    if (!channel) {
+      channel = attachBar(page, script, store);
+      channels.set(page, channel);
+      page.on('close', () => channels.delete(page));
+    }
+    return channel;
+  };
+  // A tab the page opens may have loaded before it is attached; the bar
+  // mounts on what it shows then, and on everything after.
+  context.on('page', (page) => {
+    attach(page).catch((e: unknown) => console.error(`[gloss] could not put the bar on ${page.url()}: ${firstLine(e)}`));
+  });
 
   // Every tab is told of each change, so two tabs on the same round agree.
-  // A page part-way through navigating throws; it asks for the state anyway
-  // once its new bar mounts.
+  // A page part-way through navigating has no bar to tell; it asks for the
+  // state anyway once its new bar mounts.
   store.onChange((state) => {
-    for (const page of context.pages()) {
-      page
-        .evaluate(([event, detail]) => window.dispatchEvent(new CustomEvent(event, { detail })), [STATE_EVENT, state] as const)
-        .catch(() => {});
-    }
+    for (const channel of channels.values()) channel.then((c) => c.push(state), () => {});
   });
 
   // Closing the window does not disconnect a launched browser: left alone,
@@ -106,6 +98,7 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
   browser.on('disconnected', () => settle());
 
   const first = await context.newPage();
+  await attach(first);
   // A dev server that is down is the page's problem, not the session's: the
   // window shows Chromium's error, and a later `gloss open` can go elsewhere.
   await first.goto(url, { waitUntil: 'domcontentloaded' }).catch((e: unknown) => {
@@ -117,6 +110,7 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     currentUrl: () => current()?.url() ?? null,
     navigate: async (to) => {
       const page = current() ?? (await context.newPage());
+      await attach(page);
       await page.bringToFront();
       await page.goto(to, { waitUntil: 'domcontentloaded' });
     },
