@@ -12,14 +12,15 @@ import type { Transport } from './transport.js';
  * browser made (`isTrusted`). The page under review can reach into the
  * shadow root, and its `button.click()` must not approve anything.
  *
- * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
- * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
- * `<body>` so a framework that owns the body never sees it. Its styles are
- * constructed stylesheets, which a strict CSP's `style-src` does not block the
- * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The one
- * mark it leaves on the page's own styles is PAGE_OFFSET, and on a phone,
- * STATUS_OFFSET while the status shows.
+ * It runs inside someone else's page, so it keeps to itself. In a session its
+ * script runs in an isolated world, which shares the page's DOM but none of
+ * its globals. Its DOM is in a shadow root on one `<gloss-bar>` element, hung
+ * off `<html>` rather than `<body>` so a framework that owns the body never
+ * sees it. Its styles are constructed stylesheets, which a strict CSP's
+ * `style-src` does not block the way it would an inline `<style>`, and its
+ * DOM is built node by node rather than through `innerHTML`, for pages that
+ * enforce Trusted Types. The one mark it leaves on the page's own styles is
+ * PAGE_OFFSET, and on a phone, STATUS_OFFSET while the status shows.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -33,9 +34,9 @@ export interface BarOptions {
 }
 
 /**
- * Mounts the bar once per page. The session registers it as an init script,
- * which runs in every frame and again on every navigation; only the top frame
- * gets a bar.
+ * Mounts the bar once per page. The session has its script run on every new
+ * document, which means in every frame and again on every navigation; only
+ * the top frame gets a bar.
  */
 export function mountBar(transport: Transport, options: BarOptions = {}): void {
   if (window.top !== window) return;

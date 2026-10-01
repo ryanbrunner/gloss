@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { handleRpc, type RpcSource } from './browser.js';
+import { answerRpc, handleRpc, type RpcSource } from './browser.js';
 import { CommentStore } from './store.js';
 
 const PAGE: RpcSource = { url: 'http://127.0.0.1:4400/', topFrame: true };
-const call = (store: CommentStore, c: unknown, from = PAGE) => handleRpc(store, JSON.stringify(c), from);
+const call = (store: CommentStore, c: unknown, from = PAGE) => handleRpc(store, c, from);
 
 describe('handleRpc', () => {
   test('adds a comment with the page it was written on, as Playwright saw it', () => {
@@ -38,11 +38,40 @@ describe('handleRpc', () => {
     assert.equal(store.snapshot().phase, 'reviewing');
   });
 
-  test('refuses what it does not understand, including a call that is not JSON', () => {
+  test('refuses what it does not understand', () => {
     const store = new CommentStore();
-    assert.throws(() => handleRpc(store, { method: 'approve', discardUnsent: true }, PAGE), /did not understand/);
-    assert.throws(() => handleRpc(store, '{nope', PAGE), /did not understand/);
+    assert.throws(() => call(store, JSON.stringify({ method: 'approve', discardUnsent: true })), /did not understand/);
     assert.throws(() => call(store, { method: 'approve' }), /did not understand/);
+    assert.throws(() => call(store, { method: 'approve', discardUnsent: 'yes' }), /did not understand/);
+    assert.equal(store.snapshot().phase, 'reviewing');
+  });
+});
+
+describe('answerRpc', () => {
+  const send = (store: CommentStore, request: unknown, from = PAGE) => answerRpc(store, JSON.stringify(request), from);
+
+  test('answers a numbered call with its number and the round', () => {
+    const store = new CommentStore();
+    const answer = send(store, { id: 7, call: { method: 'add', body: 'The header is too tall' } });
+    assert.deepEqual(answer, { id: 7, state: store.snapshot() });
+    assert.equal(store.snapshot().comments.length, 1);
+  });
+
+  test('answers a refused call with its number and why', () => {
+    const store = new CommentStore();
+    store.add('one');
+    const answer = send(store, { id: 3, call: { method: 'approve', discardUnsent: false } });
+    assert.equal(answer && 'error' in answer && answer.id, 3);
+    assert.match(answer && 'error' in answer ? answer.error : '', /not sent yet/);
+    assert.deepEqual(send(store, { id: 4, call: { method: 'nope' } }), { id: 4, error: 'Gloss did not understand that request' });
+    assert.equal(store.snapshot().phase, 'reviewing');
+  });
+
+  test('gives no answer to what is not JSON, or has no number to answer by', () => {
+    const store = new CommentStore();
+    assert.equal(answerRpc(store, '{nope', PAGE), null);
+    assert.equal(send(store, { method: 'approve', discardUnsent: true }), null);
+    assert.equal(send(store, { id: '1', call: { method: 'approve', discardUnsent: true } }), null);
     assert.equal(store.snapshot().phase, 'reviewing');
   });
 });

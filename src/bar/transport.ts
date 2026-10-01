@@ -2,8 +2,8 @@ import { CommentStore, type Phase, type RoundState } from '../session/store.js';
 
 /**
  * How the bar reaches whatever holds the round. The bar does not know which
- * it has: a Gloss session, through the binding Playwright exposes, or the
- * demo page's own memory.
+ * it has: a Gloss session, through a DevTools binding in the bar's own world,
+ * or the demo page's own memory.
  */
 export interface Transport {
   state(): Promise<RoundState>;
@@ -16,7 +16,7 @@ export interface Transport {
   subscribe(listener: (state: RoundState) => void): void;
 }
 
-/** The request the binding carries, as JSON. See `handleRpc` in ../session/browser.ts. */
+/** What the bar asks of the session. See `handleRpc` in ../session/browser.ts. */
 export type RpcCall =
   | { method: 'state' }
   | { method: 'add'; body: string }
@@ -24,113 +24,68 @@ export type RpcCall =
   | { method: 'submit' }
   | { method: 'approve'; discardUnsent: boolean };
 
-/** The event the session dispatches on every page's window after each change. */
-export const STATE_EVENT = 'gloss:state';
-
-type Rpc = (call: RpcCall) => Promise<RoundState>;
-
-const BINDING = '__glossRpc';
-// Playwright's names for what sits behind every exposed binding: the object
-// that numbers calls and hands back answers, and the raw DevTools binding it
-// sends them down. Both are found by name, and the page could use either to
-// call the session as though it were the bar.
-const PW_CONTROLLER = '__playwright__binding__controller__';
-const PW_BINDING = '__playwright__binding__';
+/** A call as it goes down the binding, in JSON: numbered, so its answer finds its way back. */
+export interface RpcRequest {
+  id: number;
+  call: RpcCall;
+}
 
 /**
- * Takes the session's binding out of the page's reach, and returns the one
- * way left to call it. The page under review is the code the agent is
- * editing, and whoever can call the binding can approve the round.
- *
- * It runs in every frame as part of the init script, before any script of
- * the page's, so what it holds in this closure the page never sees:
- *
- * - `__glossRpc` is taken off `window`.
- * - Playwright's controller is replaced, for the page, by a sealed stand-in
- *   that passes answers back but will not make a call to this binding.
- * - The raw DevTools binding is moved from `window` to the controller alone.
- * - A call goes as a JSON string, which Playwright passes through untouched,
- *   and not at all if the page has patched what writes it out. Its own
- *   `JSON.stringify`, or a `toJSON` or index setter on the prototypes, could
- *   otherwise rewrite a harmless call into an approval.
- *
- * This hardens the page's own realm; it cannot seal it. The check runs
- * before Playwright's `callBinding`, which calls builtins of its own (a
- * Map's `get`, `new Promise`) before it writes the call out, and a page that
- * has replaced one of those can patch JSON after the check has passed. Only
- * an isolated world closes that. The loop spike checks each route named here.
- * If Playwright's names change, the bar still works and the spike says the
- * seal is gone.
+ * What the session hands the bar through DELIVER: the answer to a call, or,
+ * with no id, the round after a change made somewhere else.
  */
-export function sealBinding(): Rpc | null {
+export type Delivery = { id: number; state: RoundState } | { id: number; error: string } | { state: RoundState };
+
+/** The DevTools binding the session adds to the bar's world. It takes a string and returns nothing. */
+export const BINDING = '__glossRpc';
+/** Where the session calls the bar back, in the same world. */
+export const DELIVER = '__glossDeliver';
+
+/**
+ * The session's transport. The bar runs in an isolated world of its own (see
+ * ../session/browser.ts), and both ends of this channel live there: the
+ * binding it calls, and DELIVER, which the session calls with each answer
+ * and with the round after every change.
+ *
+ * The page under review is the code the agent is editing, and whoever can
+ * call the binding can approve the round. The page shares the bar's DOM but
+ * not its globals or builtins, so it cannot reach the binding, and nothing it
+ * patches (JSON, a prototype, `Map`, `Promise`) is on the path a call takes.
+ *
+ * The binding is also a channel the page's CSP cannot see: a
+ * `connect-src 'self'` would block a fetch to the session's URL.
+ */
+export function bindingTransport(): Transport {
   const g = globalThis as unknown as Record<string, unknown>;
-  const exposed = g[BINDING] as ((json: string) => Promise<unknown>) | undefined;
-  delete g[BINDING];
-  if (typeof exposed !== 'function') return null;
-
-  // Held from before the page ran, and checked without a method the page
-  // could have replaced: no `.some`, no iterator.
-  const { stringify } = JSON;
-  const { hasOwn } = Object;
-  const objectProto = Object.prototype;
-  const arrayProto = Array.prototype;
-  const tampered = () =>
-    JSON.stringify !== stringify ||
-    hasOwn(objectProto, 'toJSON') ||
-    hasOwn(arrayProto, 'toJSON') ||
-    hasOwn(objectProto, '0') ||
-    hasOwn(arrayProto, '0');
-
-  let send = exposed;
-  const controller = g[PW_CONTROLLER] as PlaywrightController | undefined;
-  const raw = g[PW_BINDING];
-  if (controller && typeof controller.callBinding === 'function' && typeof raw === 'function' && '_global' in controller) {
-    controller._global = { [PW_BINDING]: raw };
-    delete g[PW_BINDING];
-    const standIn = Object.freeze({
-      deliverBindingResult: (arg: unknown) => controller.deliverBindingResult(arg),
-      addBinding: (name: string, noGlobal: boolean) => controller.addBinding(name, noGlobal),
-      removeBinding: (name: string) => controller.removeBinding(name),
-      parseInitScriptArg: (value: unknown) => controller.parseInitScriptArg(value),
-      callBinding: (name: string, ...args: unknown[]) =>
-        name === BINDING ? Promise.reject(new Error('not from the page')) : controller.callBinding(name, ...args),
-    });
-    Object.defineProperty(g, PW_CONTROLLER, { value: standIn, writable: false, configurable: false });
-    // Called on the controller rather than through `exposed`, whose spread of
-    // its arguments goes through an iterator the page could replace.
-    send = (json) => controller.callBinding(BINDING, json);
-  }
-
-  return (call) =>
-    tampered()
-      ? Promise.reject(new Error('this page has changed how JSON is written, so Gloss will not send through it'))
-      : (send(stringify(call)) as Promise<RoundState>);
-}
-
-interface PlaywrightController {
-  _global: Record<string, unknown>;
-  callBinding(name: string, ...args: unknown[]): Promise<unknown>;
-  deliverBindingResult(arg: unknown): void;
-  addBinding(name: string, noGlobal: boolean): void;
-  removeBinding(name: string): void;
-  parseInitScriptArg(value: unknown): unknown;
-}
-
-/**
- * The session's transport. It calls the binding rather than fetching the
- * session's URL, because the binding is a channel the page's CSP cannot see:
- * a `connect-src 'self'` would block the fetch.
- */
-export function bindingTransport(rpc: Rpc | null): Transport {
-  const call = (c: RpcCall) => (rpc ? rpc(c) : Promise.reject(new Error('the Gloss session is not connected')));
+  const binding = g[BINDING] as ((payload: string) => void) | undefined;
+  const pending = new Map<number, { resolve: (state: RoundState) => void; reject: (e: Error) => void }>();
+  const listeners: Array<(state: RoundState) => void> = [];
+  let last = 0;
+  g[DELIVER] = (d: Delivery) => {
+    if (!('id' in d)) {
+      for (const listener of listeners) listener(d.state);
+      return;
+    }
+    const call = pending.get(d.id);
+    pending.delete(d.id);
+    if ('error' in d) call?.reject(new Error(d.error));
+    else call?.resolve(d.state);
+  };
+  const call = (c: RpcCall) =>
+    typeof binding === 'function'
+      ? new Promise<RoundState>((resolve, reject) => {
+          const id = ++last;
+          pending.set(id, { resolve, reject });
+          binding(JSON.stringify({ id, call: c } satisfies RpcRequest));
+        })
+      : Promise.reject(new Error('the Gloss session is not connected'));
   return {
     state: () => call({ method: 'state' }),
     add: (body) => call({ method: 'add', body }),
     remove: (id) => call({ method: 'remove', id }),
     submit: () => call({ method: 'submit' }),
     approve: (discardUnsent) => call({ method: 'approve', discardUnsent }),
-    subscribe: (listener) =>
-      window.addEventListener(STATE_EVENT, (e) => listener((e as CustomEvent<RoundState>).detail)),
+    subscribe: (listener) => listeners.push(listener),
   };
 }
 

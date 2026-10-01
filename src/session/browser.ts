@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type CDPSession, type Page } from 'playwright';
 import { z } from 'zod';
 import { bundleBar } from '../bar/bundle.js';
-import { STATE_EVENT } from '../bar/transport.js';
+import { BINDING, DELIVER, type Delivery } from '../bar/transport.js';
 import { firstLine } from './server.js';
 import type { CommentStore, RoundState } from './store.js';
 
@@ -13,10 +13,16 @@ import type { CommentStore, RoundState } from './store.js';
  * Playwright rather than a proxy that rewrites the dev server's HTML. The page
  * loads from its real origin, untouched: no decompressing and rewriting
  * responses, no relaying HMR websockets, no stripping CSP or X-Frame-Options.
- * An init script runs whatever the page's CSP says, and the bar talks to the
- * session through an exposed binding rather than `fetch`, so `connect-src`
- * cannot cut it off either. Registered on the context, both follow the
- * reviewer into new tabs and across reloads.
+ * A script run on each new document runs whatever the page's CSP says, and
+ * the bar talks to the session through a DevTools binding rather than
+ * `fetch`, so `connect-src` cannot cut it off either. Set up on every page as
+ * it opens, both follow the reviewer into new tabs and across reloads.
+ *
+ * Both are set up over DevTools rather than with Playwright's `addInitScript`
+ * and `exposeBinding`, because those put the bar and its binding in the
+ * page's own JavaScript world. There the page, which is the code the agent is
+ * editing, could replace a builtin the call path uses and forge an approval.
+ * In a world of the bar's own, it cannot reach the binding at all.
  *
  * The session process owns the browser, because a Chromium Playwright
  * launched dies with the process that launched it.
@@ -50,18 +56,12 @@ export interface RpcSource {
 
 /**
  * What the bar asks of the session, answered with the round as it stands.
- * The call is JSON, as `sealBinding` in ../bar/transport.ts sends it. The page
- * may still find a way to call the binding, so what it sends is checked, and
- * nothing that changes the round is taken from a frame, or from a page that
- * is not on http or https (a blank popup the page opened and scripts).
+ * Only the bar's world has the binding, but what comes down it is still
+ * checked, and nothing that changes the round is taken from a frame, or from
+ * a page that is not on http or https (a blank popup the page opened and
+ * scripts).
  */
-export function handleRpc(store: CommentStore, json: unknown, from: RpcSource): RoundState {
-  let call: unknown;
-  try {
-    call = typeof json === 'string' ? JSON.parse(json) : null;
-  } catch {
-    call = null;
-  }
+export function handleRpc(store: CommentStore, call: unknown, from: RpcSource): RoundState {
   const parsed = rpcCall.safeParse(call);
   if (!parsed.success) throw new Error('Gloss did not understand that request');
   const { data } = parsed;
@@ -72,6 +72,83 @@ export function handleRpc(store: CommentStore, json: unknown, from: RpcSource): 
   if (data.method === 'submit') store.submit(from.url);
   if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
   return store.snapshot();
+}
+
+const rpcRequest = z.object({ id: z.number(), call: z.unknown() });
+
+/**
+ * One call on the binding, as the JSON `bindingTransport` in
+ * ../bar/transport.ts sends, and the answer to hand back. A payload that is
+ * not a numbered call gets no answer, since there is nothing to answer it by.
+ */
+export function answerRpc(store: CommentStore, payload: string, from: RpcSource): Delivery | null {
+  let request: unknown;
+  try {
+    request = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  const parsed = rpcRequest.safeParse(request);
+  if (!parsed.success) return null;
+  const { id, call } = parsed.data;
+  try {
+    return { id, state: handleRpc(store, call, from) };
+  } catch (e) {
+    return { id, error: firstLine(e) };
+  }
+}
+
+/** The isolated world the bar runs in, apart from the page's scripts. */
+const WORLD = 'gloss';
+
+/** A page's own DevTools session, and the bar's world in each of its frames. */
+interface BarPage {
+  cdp: CDPSession;
+  mainFrame: string;
+  /** Execution context id to frame id, for every frame's gloss world. */
+  worlds: Map<number, string>;
+}
+
+/**
+ * Puts the bar in `page`, in the gloss world of every frame, now and on every
+ * new document, and answers its calls from `store`.
+ */
+async function injectBar(page: Page, bundle: string, store: CommentStore): Promise<BarPage> {
+  const cdp = await page.context().newCDPSession(page);
+  const { frameTree } = await cdp.send('Page.getFrameTree');
+  const bar: BarPage = { cdp, mainFrame: frameTree.frame.id, worlds: new Map() };
+  cdp.on('Runtime.executionContextCreated', ({ context }) => {
+    const frame = context.auxData?.frameId;
+    if (context.name === WORLD && frame) bar.worlds.set(context.id, frame);
+  });
+  cdp.on('Runtime.executionContextDestroyed', ({ executionContextId }) => bar.worlds.delete(executionContextId));
+  cdp.on('Runtime.executionContextsCleared', () => bar.worlds.clear());
+  cdp.on('Runtime.bindingCalled', ({ name, payload, executionContextId }) => {
+    if (name !== BINDING) return;
+    const topFrame = bar.worlds.get(executionContextId) === bar.mainFrame;
+    const reply = answerRpc(store, payload, { url: page.url(), topFrame });
+    if (reply) void deliver(bar, executionContextId, reply);
+  });
+  // Without the Page domain on, this session's scripts run only in the
+  // documents there now, and none after a navigation.
+  await cdp.send('Page.enable');
+  await cdp.send('Runtime.enable');
+  // The binding first, so the world the script creates has it. `runImmediately`
+  // also runs the script in the documents already there: a popup's first one
+  // can load before Playwright announces the page.
+  await cdp.send('Runtime.addBinding', { name: BINDING, executionContextName: WORLD });
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: bundle, worldName: WORLD, runImmediately: true });
+  return bar;
+}
+
+/**
+ * Hands the bar an answer or the latest round, in the world it called from.
+ * A world gone with its document is nothing to tell.
+ */
+async function deliver(bar: BarPage, contextId: number, delivery: Delivery): Promise<void> {
+  await bar.cdp
+    .send('Runtime.evaluate', { expression: `globalThis.${DELIVER}(${JSON.stringify(delivery)})`, contextId })
+    .catch(() => {});
 }
 
 export interface SessionBrowser {
@@ -108,32 +185,50 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     viewport: options.headless ? { width: 1280, height: 800 } : null,
     ignoreHTTPSErrors: true,
   });
-  await context.exposeBinding('__glossRpc', (source, call: unknown) =>
-    handleRpc(store, call, { url: source.page.url(), topFrame: source.frame === source.page.mainFrame() }),
-  );
-  await context.addInitScript({ content: await bundleBar('session') });
-
-  // Every tab is told of each change, so two tabs on the same round agree.
-  // A page part-way through navigating throws; it asks for the state anyway
-  // once its new bar mounts.
-  store.onChange((state) => {
-    for (const page of context.pages()) {
-      page
-        .evaluate(([event, detail]) => window.dispatchEvent(new CustomEvent(event, { detail })), [STATE_EVENT, state] as const)
-        .catch(() => {});
-    }
-  });
+  const bundle = await bundleBar('session');
 
   // Closing the window does not disconnect a launched browser: left alone,
   // the session would sit there with nothing to show. The last page closing
   // is the reviewer saying they are done.
   let settle = () => {};
   const closed = new Promise<void>((resolve) => (settle = resolve));
-  const watch = (page: Page) => page.on('close', () => context.pages().length === 0 && settle());
-  context.on('page', watch);
   browser.on('disconnected', () => settle());
 
+  // Each page gets the bar as Playwright announces it, and anything about to
+  // navigate a page waits for it first. A page closed part-way through has
+  // nothing to show it in.
+  const bars = new Map<Page, Promise<BarPage | null>>();
+  const barOf = (page: Page) => {
+    let bar = bars.get(page);
+    if (!bar) {
+      bar = injectBar(page, bundle, store).catch((e: unknown) => {
+        if (!page.isClosed()) console.error(`[gloss] could not put the bar in ${page.url()}: ${firstLine(e)}`);
+        return null;
+      });
+      bars.set(page, bar);
+      page.on('close', () => {
+        bars.delete(page);
+        if (context.pages().length === 0) settle();
+      });
+    }
+    return bar;
+  };
+  context.on('page', (page) => void barOf(page));
+
+  // Every tab is told of each change, so two tabs on the same round agree.
+  // A world on its way out throws; the bar in the next one asks for the
+  // state anyway once it mounts.
+  store.onChange((state) => {
+    for (const bar of bars.values()) {
+      void bar.then((b) => {
+        if (!b) return;
+        for (const [contextId, frame] of b.worlds) if (frame === b.mainFrame) void deliver(b, contextId, { state });
+      });
+    }
+  });
+
   const first = await context.newPage();
+  await barOf(first);
   // A dev server that is down is the page's problem, not the session's: the
   // window shows Chromium's error, and a later `gloss open` can go elsewhere.
   await first.goto(url, { waitUntil: 'domcontentloaded' }).catch((e: unknown) => {
@@ -145,6 +240,7 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     currentUrl: () => current()?.url() ?? null,
     navigate: async (to) => {
       const page = current() ?? (await context.newPage());
+      await barOf(page);
       await page.bringToFront();
       await page.goto(to, { waitUntil: 'domcontentloaded' });
     },
