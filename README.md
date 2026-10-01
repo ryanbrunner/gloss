@@ -16,12 +16,24 @@ Claude Code plugin in this repo runs that loop for you.
 
 ## Install
 
+With Homebrew:
+
+```sh
+brew install ryanbrunner/tap/gloss
+gloss install-chromium            # once: about 150 MB
+```
+
+`gloss install-chromium` downloads the Chromium that Gloss's own Playwright
+drives, so the browser always matches it.
+
+### From a checkout
+
 Node 22.12 or later.
 
 ```sh
 npm install
-npx playwright install chromium   # once: about 150 MB
-npm link                          # optional: puts `gloss` on your PATH
+node bin/gloss.js install-chromium   # once: about 150 MB
+npm link                             # optional: puts `gloss` on your PATH
 ```
 
 Without `npm link`, run it as `node bin/gloss.js …` or `npm run gloss -- …`.
@@ -31,9 +43,11 @@ Without `npm link`, run it as `node bin/gloss.js …` or `npm run gloss -- …`.
 The repo is a Claude Code plugin marketplace. With `gloss` on your PATH:
 
 ```
-/plugin marketplace add /path/to/gloss
+/plugin marketplace add ryanbrunner/gloss
 /plugin install gloss@gloss
 ```
+
+From a checkout, `/plugin marketplace add /path/to/gloss` works too.
 
 Then `/gloss http://localhost:3000` opens the page and loops: it waits for
 your round, marks itself working, applies the comments, says it is ready
@@ -45,6 +59,8 @@ with a summary, and waits again, until you approve.
 gloss open <url> [--name N]    show <url> in the Gloss window, starting a session if there is none
 gloss status [--name N] [--json]   exit 0 and say where the session is and its phase, or exit 1 if there is none
 gloss close [--name N]         end the session and close its window
+gloss install-chromium         download the Chromium Gloss drives, once
+gloss --version                print Gloss's version
 
 gloss wait [--name N]          block until the reviewer submits or approves; print the verdict as JSON
 gloss working [message]        the bar says Claude is working, with the message; the reviewer cannot submit
@@ -192,7 +208,7 @@ Chromium with Playwright, and registers the bar with `addInitScript` and
 
 The cost is the Chromium download and a window that isn't your everyday
 browser. If Chromium is missing, `gloss open` exits 1 and says to run
-`npx playwright install chromium`.
+`gloss install-chromium`.
 
 ## Development
 
@@ -207,7 +223,9 @@ npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Optio
 ```
 
 CI runs all three spikes on every push and pull request, in
-`.github/workflows/ci.yml`.
+`.github/workflows/ci.yml`. It also installs the packed tarball the way
+Homebrew does and runs it on node 22 and 26, and lints the formula.
+[docs/releasing.md](docs/releasing.md) covers releases.
 
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
 reads `--port` and `PORT`. Query flags make each state of the bar reachable
