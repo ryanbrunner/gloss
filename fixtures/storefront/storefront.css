@@ -4,7 +4,8 @@
  * it with a strict Content-Security-Policy.
  */
 * { box-sizing: border-box; }
-html { background: #f8f8f7; }
+/* Room for the 51px header, so Cart (2) does not jump the summary under it. */
+html { background: #f8f8f7; scroll-padding-top: 51px; }
 body {
   margin: 0;
   color: #1a1a1a;
@@ -29,7 +30,7 @@ p { margin: 0; }
   font-weight: 600;
 }
 
-/* `?fixed`: a header pinned to the viewport, the case the bar covers. */
+/* `?fixed`: a header pinned to the viewport, which the bar has to move down. */
 .fixed-header .site-header { position: fixed; left: 0; right: 0; }
 .fixed-header .shop { margin-top: 51px; }
 

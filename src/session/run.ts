@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { CliError, parseOrUsage, usageError } from '../output.js';
 import { BrowserUnavailable, openBrowser, type SessionBrowser } from './browser.js';
-import { createApp, startServer, type RunningServer } from './server.js';
+import { createApp, startServer, Waits, type RunningServer } from './server.js';
 import { removeState, sessionRef, writeState } from './state.js';
 import { CommentStore } from './store.js';
 
@@ -13,7 +15,9 @@ import { CommentStore } from './store.js';
  *
  * It writes the state file only once both halves are up, so a state file
  * always names a session that can answer. Every way out goes through `stop`,
- * which takes the file away first, so nothing finds a session that is going.
+ * which takes the file away first, so nothing finds a session that is going,
+ * and tells any `gloss wait` why before the server goes, so the wait ends
+ * with a reason rather than a cut connection.
  */
 export async function runSession(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() =>
@@ -25,8 +29,11 @@ export async function runSession(args: string[]): Promise<void> {
   if (!values.cwd || !values.url) throw usageError('__session is started by `gloss open`, with --cwd and --url');
 
   const ref = sessionRef(values.cwd, values.name ?? '');
+  // The pid's own, so a session going away late cannot take a newer one's pictures with it.
+  const shotsDir = join(ref.shotsPath, String(process.pid));
   const url = values.url;
   const store = new CommentStore();
+  const waits = new Waits();
   const token = randomBytes(24).toString('base64url');
   let browser: SessionBrowser | null = null;
   let server: RunningServer | null = null;
@@ -37,21 +44,35 @@ export async function runSession(args: string[]): Promise<void> {
     stopping = true;
     log(`stopping: ${why}`);
     removeState(ref, process.pid);
+    waits.end(`the Gloss session ended: ${why}`);
     await browser?.close();
     await server?.close();
+    // The comments go with the session, so their pictures do too.
+    rmSync(shotsDir, { recursive: true, force: true });
     process.exit(exitCode);
   };
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, () => void stop(signal));
+
+  let phase = store.snapshot().phase;
+  store.onChange((s) => {
+    if (s.phase !== phase) log(`round ${s.round}: ${phase} → ${s.phase}`);
+    phase = s.phase;
+  });
 
   server = await startServer(
     createApp({
       token,
       store,
+      waits,
       currentUrl: () => browser?.currentUrl() ?? null,
       navigate: async (to) => {
         if (!browser) throw new Error('the browser is not open yet');
         await browser.navigate(to);
         log(`navigated to ${to}`);
+      },
+      reload: async () => {
+        await browser?.reload();
+        log(`ready: reloaded for round ${store.snapshot().round}`);
       },
       close: () => void stop('asked to close'),
     }),
@@ -61,6 +82,7 @@ export async function runSession(args: string[]): Promise<void> {
     browser = await openBrowser(url, store, {
       headless: process.env.GLOSS_HEADLESS === '1',
       cdpPort: process.env.GLOSS_CDP_PORT ? Number(process.env.GLOSS_CDP_PORT) : undefined,
+      shotsDir,
     });
   } catch (e) {
     await server.close();

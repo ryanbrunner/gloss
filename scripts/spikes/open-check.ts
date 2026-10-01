@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -152,6 +152,16 @@ try {
   assert.equal(layout.headerBackground, 'rgb(255, 255, 255)');
   console.log(`bar: 44px on <html>, storefront header at ${layout.headerTop}px`);
 
+  // An anchor jump clears the page's own 51px header as well as the bar. The
+  // padding gives the page room to scroll the summary that far.
+  await page.evaluate(() => (document.body.style.paddingBottom = '100vh'));
+  await page.getByRole('link', { name: 'Cart (2)' }).click();
+  const summaryTop = () => page.evaluate(() => document.querySelector('#summary')!.getBoundingClientRect().top);
+  await until('the summary below the header', async () => (await summaryTop()) === 95);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingTop), '95px');
+  await page.evaluate(() => (document.body.style.paddingBottom = ''));
+  console.log('anchor jump: Cart (2) put the summary at 95px, below the bar and the header');
+
   // Adding: Enter, the Add button, and Shift+Enter for a newline.
   const box = page.locator('gloss-bar textarea');
   await box.fill('The header is too tall');
@@ -187,14 +197,6 @@ try {
   assert.deepEqual(await comments(), ['Cart count is wrong', 'line one\nline two']);
   console.log('comments: added with Enter, Add and Shift+Enter; deleted from the list; read back from /api/state');
 
-  // Submit and Approve are there, and only say they come later.
-  // Forced: Playwright will not click an aria-disabled button, which is the point of it.
-  await page.getByRole('button', { name: 'Submit' }).click({ force: true });
-  assert.match(await page.locator('gloss-bar .note').innerText(), /later card/);
-  const after = (await (await apiState()).json()) as RoundState;
-  assert.equal(after.round, 1);
-  assert.equal(after.comments.length, 2);
-
   // A reload loses nothing: the comments are the session's, not the page's.
   await page.reload();
   await page.locator('gloss-bar .bar').waitFor();
@@ -210,6 +212,12 @@ try {
   assert.equal(pages.length, 1, 'still one window');
   await until('the ?fixed page', () => pages[0]!.url().endsWith('/?fixed'));
   console.log('second open: reused the session and navigated its window');
+
+  // A fixed header is moved down out from under the bar.
+  const fixedHeaderTop = () =>
+    pages[0]!.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().top);
+  await until('the fixed header below the bar', async () => (await fixedHeaderTop()) === 44);
+  console.log('fixed header: moved down below the bar');
 
   // A strict CSP does not keep the bar out, or unstyled.
   assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
@@ -241,6 +249,141 @@ try {
   assert.ok(csp.headerTop >= 44);
   await waitForCount(cspPage, 2);
   console.log('csp: the bar mounted, styled, and reached the session under a strict policy');
+
+  // Pinning, on the same strict page: in Select mode a click on the page picks.
+  const inBar = (selector: string) => cspPage.locator(`gloss-bar ${selector}`);
+  const pressed = (name: string) => cspPage.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
+  await cspPage.getByRole('button', { name: 'Select', exact: true }).click();
+  assert.equal(await pressed('Select'), 'true');
+  assert.equal(await pressed('Interact'), 'false');
+  await cspPage.getByRole('link', { name: 'Cart (2)' }).click();
+  await inBar('.composer').waitFor();
+  assert.equal(await cspPage.evaluate(() => location.hash), '', 'the link was not followed');
+  assert.equal(await inBar('.composer-heading').innerText(), 'Comment on a · Cart (2)');
+  await cspPage.keyboard.press('Escape');
+  await inBar('.composer').waitFor({ state: 'detached' });
+  assert.equal(await pressed('Select'), 'true', 'Escape closed the box, and left Select mode on');
+
+  // The bar's own buttons still work.
+  await cspPage.getByRole('button', { name: /Comments/ }).click();
+  assert.equal(await inBar('.toggle').getAttribute('aria-expanded'), 'true');
+  await cspPage.getByRole('button', { name: /Comments/ }).click();
+  assert.equal(await inBar('.toggle').getAttribute('aria-expanded'), 'false');
+
+  // Hovering outlines the element, exactly.
+  const total = cspPage.getByText('Total $43.20');
+  await total.hover();
+  await until('the Total outlined', () =>
+    cspPage.evaluate(() => {
+      const el = document.querySelector('#summary p:last-of-type')!.getBoundingClientRect();
+      const outline = document.querySelector('gloss-bar')!.shadowRoot!.querySelector('.highlight:not(.picked)')!;
+      const box = outline.getBoundingClientRect();
+      return (
+        !outline.hasAttribute('hidden') &&
+        [box.left - el.left, box.top - el.top, box.width - el.width, box.height - el.height].every((d) => Math.abs(d) < 1)
+      );
+    }),
+  );
+
+  // Click, type, Enter: a comment pinned to exactly that element.
+  await total.click();
+  await inBar('.composer').waitFor();
+  assert.equal(await inBar('.composer-heading').innerText(), 'Comment on p · Total $43.20');
+  assert.ok(
+    await cspPage.evaluate(() => {
+      const root = document.querySelector('gloss-bar')!.shadowRoot!;
+      return root.activeElement === root.querySelector('.composer textarea');
+    }),
+    'the cursor is in the comment box',
+  );
+  await cspPage.keyboard.type('Show shipping above the total');
+  await cspPage.keyboard.press('Enter');
+  await waitForCount(cspPage, 3);
+  await inBar('.composer').waitFor({ state: 'detached' });
+  const pinned = ((await (await apiState()).json()) as RoundState).comments.at(-1)!;
+  assert.equal(pinned.body, 'Show shipping above the total');
+  assert.ok(pinned.pin, 'the comment has a pin');
+  assert.equal(pinned.pin.selector, '#summary > p:nth-of-type(3)');
+  assert.ok(
+    await cspPage.evaluate((selector) => {
+      const found = document.querySelectorAll(selector);
+      return found.length === 1 && found[0] === document.querySelector('#summary p:last-of-type');
+    }, pinned.pin.selector),
+    `${pinned.pin.selector} matches the Total and nothing else`,
+  );
+  assert.deepEqual([pinned.pin.tag, pinned.pin.text], ['p', 'Total $43.20']);
+  assert.equal(await pressed('Select'), 'true', 'still in Select mode after adding');
+
+  // The session's photograph is of the page alone: the storefront is grey
+  // and white, so a blue pixel is the outline, a marker or the comment box.
+  assert.ok(pinned.pin.screenshot && existsSync(pinned.pin.screenshot), 'the screenshot was written');
+  const blue = await cspPage.evaluate(async (png) => {
+    const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i + 2]! > data[i]! + 24) count++;
+    return { count, width: bitmap.width, height: bitmap.height };
+  }, readFileSync(pinned.pin.screenshot).toString('base64'));
+  assert.ok(blue.width > 100 && blue.height > 10, `the screenshot is ${blue.width}×${blue.height}`);
+  assert.equal(blue.count, 0, 'nothing the bar draws is in the screenshot');
+
+  // A marker sits on the element's top right corner, and follows it as the page scrolls.
+  const markerOnTotal = (sent: boolean) =>
+    cspPage.evaluate((sent) => {
+      const marker = document.querySelector('gloss-bar')!.shadowRoot!.querySelector('.marker');
+      if (!marker || marker.hasAttribute('hidden') || marker.classList.contains('sent') !== sent) return false;
+      const m = marker.getBoundingClientRect();
+      const el = document.querySelector('#summary p:last-of-type')!.getBoundingClientRect();
+      return marker.textContent === '1' && Math.abs(m.left + m.width / 2 - el.right) < 1 && Math.abs(m.top + m.height / 2 - el.top) < 1;
+    }, sent);
+  await until('the marker on the Total', () => markerOnTotal(false));
+  await cspPage.evaluate(() => {
+    document.body.style.paddingBottom = '100vh';
+    scrollTo(0, 60);
+  });
+  assert.equal(await cspPage.evaluate(() => scrollY), 60);
+  await until('the marker on the scrolled Total', () => markerOnTotal(false));
+  await cspPage.evaluate(() => {
+    scrollTo(0, 0);
+    document.body.style.paddingBottom = '';
+  });
+
+  // The list numbers it the same way.
+  await cspPage.getByRole('button', { name: /Comments/ }).click();
+  const item = inBar('.item').filter({ hasText: 'Show shipping above the total' });
+  assert.equal(await item.locator('.num').innerText(), '1');
+  assert.equal(await item.locator('.meta').innerText(), 'p · Total $43.20');
+  await cspPage.keyboard.press('Escape');
+
+  // Escape with nothing open goes back to Interact.
+  await cspPage.keyboard.press('Escape');
+  assert.equal(await pressed('Interact'), 'true');
+  console.log(`pin: picked the Total in Select mode, pinned ${pinned.pin.selector}, photographed without the overlay`);
+
+  // A reload brings the marker back.
+  await cspPage.reload();
+  await cspPage.locator('gloss-bar .bar').waitFor();
+  await until('the marker after a reload', () => markerOnTotal(false));
+
+  // Submit works from Select mode; once Claude is ready, the marker is dimmed.
+  await cspPage.getByRole('button', { name: 'Select', exact: true }).click();
+  await cspPage.getByRole('button', { name: 'Submit', exact: true }).click();
+  await until('the round submitted', async () => ((await (await apiState()).json()) as RoundState).phase === 'submitted');
+  await cspPage.getByRole('button', { name: 'Interact', exact: true }).click();
+  assert.equal(await pressed('Interact'), 'true');
+  const ready = await gloss(['ready', 'Moved shipping above the total']);
+  assert.equal(ready.code, 0, ready.stderr);
+  await until('the dimmed marker', () => markerOnTotal(true));
+  // A sent pin whose element is gone has no marker.
+  await cspPage.evaluate(() => document.querySelector('#summary p:last-of-type')!.remove());
+  await until('no marker for the gone element', () =>
+    cspPage.evaluate(() => document.querySelector('gloss-bar')!.shadowRoot!.querySelector('.marker')!.hasAttribute('hidden')),
+  );
+  console.log('markers: on the element through a scroll and a reload, dimmed once sent, gone with the element');
 
   // gloss close ends it all.
   const closed = await gloss(['close']);
