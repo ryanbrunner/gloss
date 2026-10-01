@@ -72,10 +72,11 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - **Comments (n)** opens the list, where each comment can be deleted.
 - Comments belong to the session, not the page, so they survive a reload and
   every tab shows the same list.
-- The bar lives in a shadow root on one `<gloss-bar>` element on `<html>`. Page
-  CSS cannot reach into it and its CSS cannot leak out. The one change to the
-  page's own styles is `html { margin-top: 44px }`, which pushes the page down
-  below the bar.
+- The bar lives in a closed shadow root on one `<gloss-bar>` element on
+  `<html>`. Page CSS cannot reach into it and its CSS cannot leak out, and the
+  page's scripts cannot read it or change what is in it. The one change to
+  the page's own styles is `html { margin-top: 44px }`, which pushes the page
+  down below the bar.
 
 ### Known gaps
 
@@ -84,6 +85,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   scroll. Layouts sized to `100vh` overflow by 44px.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
+- The page cannot call the session or reach inside the bar, but it can still
+  hide the `<gloss-bar>` element, or draw something that looks like the bar
+  over it. Nothing inside a page can rule that out.
 
 ## Why Playwright, not a proxy or an iframe
 

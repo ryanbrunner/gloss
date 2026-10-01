@@ -13,6 +13,12 @@ import type { Transport } from './transport.js';
  * way it would an inline `<style>`, and its DOM is built node by node rather
  * than through `innerHTML`, for pages that enforce Trusted Types. The one
  * mark it leaves on the page's own styles is PAGE_OFFSET.
+ *
+ * The shadow root is closed. The page is the code under review, and with an
+ * open root it could rewrite a comment in the box before the reviewer sends
+ * it, or relabel a button. That holds because the session runs the bar in a
+ * world of its own (see ../session/channel.ts), where the page cannot patch
+ * `attachShadow` before the bar calls it.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -66,7 +72,7 @@ function h<K extends keyof HTMLElementTagNameMap>(
 
 class Bar {
   private readonly host = document.createElement(HOST_TAG);
-  private readonly root = this.host.attachShadow({ mode: 'open' });
+  private readonly root = this.host.attachShadow({ mode: 'closed' });
   private state: RoundState = { round: 1, comments: [] };
   private listOpen: boolean;
 

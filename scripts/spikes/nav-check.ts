@@ -20,6 +20,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { readState, sessionRef } from '../../src/session/state.js';
+import { barFill, barText, barThere as barMounted } from './bar.js';
 
 const BIN = fileURLToPath(new URL('../../bin/gloss.js', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'gloss-nav-check-'));
@@ -113,7 +114,8 @@ async function windowPage(): Promise<Page> {
   cdp ??= await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
   return until('the session window', () => cdp!.contexts().flatMap((c) => c.pages()).at(-1));
 }
-const barThere = (p: Page) => p.locator('gloss-bar .bar').waitFor({ timeout: 5000 });
+const barThere = (p: Page) => until('the bar', () => barMounted(p), 5000);
+const hasCount = async (p: Page, n: number) => (await barText(p, '.toggle'))?.includes(`(${n})`);
 const title = (p: Page) => p.locator('#title').innerText();
 
 try {
@@ -176,19 +178,19 @@ try {
   // Add a comment, then client-side navigate with a body swap.
   await p.goto(`${base}/`);
   await barThere(p);
-  await p.locator('gloss-bar textarea').fill('before spa nav');
-  await p.locator('gloss-bar textarea').press('Enter');
-  await until('count 1', async () => (await p.locator('gloss-bar .toggle').innerText()).includes('(1)'));
+  await barFill(p, 'before spa nav');
+  await p.keyboard.press('Enter');
+  await until('count 1', () => hasCount(p, 1));
   await p.locator('#spa').click();
   await until('spa', async () => (await title(p).catch(() => '')) === 'SPA next');
   assert.equal(p.url(), `${base}/spa/next`);
   await barThere(p);
-  assert.ok((await p.locator('gloss-bar .toggle').innerText()).includes('(1)'));
+  assert.ok(await hasCount(p, 1));
   assert.equal(await p.evaluate(() => document.querySelectorAll('gloss-bar').length), 1);
   // Hydration that strips unknown children of <html> doesn't lose the bar.
   await p.evaluate(() => document.querySelector('gloss-bar')!.remove());
   await until('the bar to re-attach', () => p.evaluate(() => document.querySelectorAll('gloss-bar').length === 1));
-  await until('count 1 again', async () => (await p.locator('gloss-bar .toggle').innerText()).includes('(1)'));
+  await until('count 1 again', () => hasCount(p, 1));
   await p.goBack();
   await until('popstate url', () => p.url() === `${base}/`);
   await barThere(p);

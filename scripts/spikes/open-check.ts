@@ -24,6 +24,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { createDevServer } from '../dev.js';
 import { pidAlive, readState, sessionRef } from '../../src/session/state.js';
 import type { RoundState } from '../../src/session/store.js';
+import { barClick, barCount, barFill, barText, barThere, barValue, inBar } from './bar.js';
 
 const BIN = fileURLToPath(new URL('../../bin/gloss.js', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'gloss-open-check-'));
@@ -102,9 +103,9 @@ async function disconnect(): Promise<void> {
   cdp = null;
 }
 
-const toggleText = (page: Page) => page.locator('gloss-bar .toggle').innerText();
+const waitBar = (page: Page) => until('the bar', () => barThere(page));
 const waitForCount = (page: Page, n: number) =>
-  until(`Comments (${n})`, async () => (await toggleText(page)).includes(`(${n})`));
+  until(`Comments (${n})`, async () => (await barText(page, '.toggle'))?.includes(`(${n})`));
 
 try {
   // gloss open: returns promptly, having started a session that answers.
@@ -125,15 +126,15 @@ try {
   assert.equal((await apiState('wrong')).status, 401);
   assert.equal((await fetch(`http://127.0.0.1:${first.port}/api/state`)).status, 401);
 
-  // The bar: in a shadow root on <html>, with the page pushed down under it.
+  // The bar: in a closed shadow root on <html>, with the page pushed down under it.
   const page = await windowPage();
-  await page.locator('gloss-bar .bar').waitFor();
+  await waitBar(page);
   const layout = await page.evaluate(() => {
     const host = document.querySelector('gloss-bar')!;
     const header = document.querySelector('.site-header')!;
     return {
       onHtml: host.parentElement === document.documentElement,
-      shadow: host.shadowRoot !== null,
+      closed: host.shadowRoot === null,
       inBody: document.body.querySelectorAll('gloss-bar').length,
       barHeight: host.getBoundingClientRect().height,
       headerTop: header.getBoundingClientRect().top,
@@ -143,8 +144,8 @@ try {
     };
   });
   assert.deepEqual(
-    { onHtml: layout.onHtml, shadow: layout.shadow, inBody: layout.inBody, barHeight: layout.barHeight },
-    { onHtml: true, shadow: true, inBody: 0, barHeight: 44 },
+    { onHtml: layout.onHtml, closed: layout.closed, inBody: layout.inBody, barHeight: layout.barHeight },
+    { onHtml: true, closed: true, inBody: 0, barHeight: 44 },
   );
   assert.ok(layout.headerTop >= 44, `the storefront header starts at ${layout.headerTop}px, under the bar`);
   assert.match(layout.bodyFont, /Helvetica Neue/);
@@ -153,28 +154,28 @@ try {
   console.log(`bar: 44px on <html>, storefront header at ${layout.headerTop}px`);
 
   // The page under review cannot reach the session: neither the binding nor
-  // Playwright's channel beneath one is on its window.
+  // Playwright's channel beneath one is on its window, and the bar's own DOM
+  // is closed to it, so it cannot rewrite a comment before it is sent.
   const reach = await page.evaluate(() => {
     const w = window as unknown as Record<string, unknown>;
     return [w.__glossRpc, w.__glossReceive, w.__playwright__binding__, w.__playwright__binding__controller__].map((v) => typeof v);
   });
   assert.deepEqual(reach, ['undefined', 'undefined', 'undefined', 'undefined']);
-  console.log('isolation: no Gloss or Playwright binding on the page\'s window');
+  console.log('isolation: no Gloss or Playwright binding on the page\'s window, and the bar\'s root is closed');
 
   // Adding: Enter, the Add button, and Shift+Enter for a newline.
-  const box = page.locator('gloss-bar textarea');
-  await box.fill('The header is too tall');
-  await box.press('Enter');
+  await barFill(page, 'The header is too tall');
+  await page.keyboard.press('Enter');
   await waitForCount(page, 1);
-  await box.fill('Cart count is wrong');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await barFill(page, 'Cart count is wrong');
+  await barClick(page, 'button', { text: 'Add' });
   await waitForCount(page, 2);
-  await box.fill('line one');
-  await box.press('Shift+Enter');
-  await box.pressSequentially('line two');
-  await box.press('Enter');
+  await barFill(page, 'line one');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('line two');
+  await page.keyboard.press('Enter');
   await waitForCount(page, 3);
-  assert.equal(await box.inputValue(), '');
+  assert.equal(await barValue(page), '');
   assert.deepEqual(await comments(), ['The header is too tall', 'Cart count is wrong', 'line one\nline two']);
 
   // A key typed in the bar never reaches the page's own listeners.
@@ -183,50 +184,51 @@ try {
     document.addEventListener('keydown', () => seen++);
     (window as unknown as { __seen: () => number }).__seen = () => seen;
   });
-  await box.press('j');
+  await barClick(page, 'textarea');
+  await page.keyboard.press('j');
   assert.equal(await page.evaluate(() => (window as unknown as { __seen: () => number }).__seen()), 0);
-  await box.fill('');
+  await barFill(page, '');
 
   // The list, and deleting from it.
-  await page.getByRole('button', { name: /Comments/ }).click();
-  const items = page.locator('gloss-bar .item');
-  assert.equal(await items.count(), 3);
-  await items.first().getByRole('button', { name: 'Delete comment' }).click();
+  await barClick(page, '.toggle');
+  assert.equal(await barCount(page, '.item'), 3);
+  await barClick(page, '.delete');
   await waitForCount(page, 2);
   assert.deepEqual(await comments(), ['Cart count is wrong', 'line one\nline two']);
   console.log('comments: added with Enter, Add and Shift+Enter; deleted from the list; read back from /api/state');
 
   // Submit and Approve are there, and only say they come later.
-  // Forced: Playwright will not click an aria-disabled button, which is the point of it.
-  await page.getByRole('button', { name: 'Submit' }).click({ force: true });
-  assert.match(await page.locator('gloss-bar .note').innerText(), /later card/);
+  await barClick(page, 'button', { text: 'Submit' });
+  assert.match((await barText(page, '.note')) ?? '', /later card/);
   const after = (await (await apiState()).json()) as RoundState;
   assert.equal(after.round, 1);
   assert.equal(after.comments.length, 2);
 
   // A reload loses nothing: the comments are the session's, not the page's.
   await page.reload();
-  await page.locator('gloss-bar .bar').waitFor();
+  await waitBar(page);
   await waitForCount(page, 2);
   console.log('reload: the bar came back with both comments');
 
   // A tab the page opens gets a bar of its own, and the two tell each other
   // of their changes.
   const [popup] = await Promise.all([page.context().waitForEvent('page'), page.evaluate(() => void window.open(location.href))]);
-  await popup.locator('gloss-bar .bar').waitFor();
+  await waitBar(popup);
   await waitForCount(popup, 2);
-  await popup.locator('gloss-bar textarea').fill('From the second tab');
-  await popup.locator('gloss-bar textarea').press('Enter');
+  await barFill(popup, 'From the second tab');
+  await popup.keyboard.press('Enter');
   await waitForCount(page, 3);
-  await page.locator('gloss-bar textarea').fill('From the first tab');
-  await page.locator('gloss-bar textarea').press('Enter');
+  await page.bringToFront();
+  await barFill(page, 'From the first tab');
+  await page.keyboard.press('Enter');
   await waitForCount(popup, 4);
   await popup.close();
-  await page.getByRole('button', { name: /Comments/ }).click();
-  await page.locator('gloss-bar .item').nth(3).getByRole('button', { name: 'Delete comment' }).click();
-  await page.locator('gloss-bar .item').nth(2).getByRole('button', { name: 'Delete comment' }).click();
+  await barClick(page, '.toggle');
+  await barClick(page, '.delete', { nth: 3 });
+  await waitForCount(page, 3);
+  await barClick(page, '.delete', { nth: 2 });
   await waitForCount(page, 2);
-  await page.getByRole('button', { name: /Comments/ }).click();
+  await barClick(page, '.toggle');
   console.log('second tab: a popup got the bar, and each tab heard of the other\'s comment');
 
   // A second open from the same directory moves the same window.
@@ -243,29 +245,27 @@ try {
   assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
   const cspPage = await windowPage();
   await until('the ?csp page', () => cspPage.url().endsWith('/?csp'));
-  await cspPage.locator('gloss-bar .bar').waitFor();
+  await waitBar(cspPage);
   // No named functions inside: tsx's transform would wrap them in a helper
   // the page does not have.
   const csp = await cspPage.evaluate(
     () =>
-      new Promise<{ enforced: boolean; barBackground: string; headerTop: number }>((resolve) => {
+      new Promise<{ enforced: boolean; headerTop: number }>((resolve) => {
         let enforced = false;
         document.addEventListener('securitypolicyviolation', () => (enforced = true), { once: true });
         const probe = document.createElement('style');
         probe.textContent = 'body{}';
         document.head.append(probe);
         setTimeout(() => {
-          const bar = document.querySelector('gloss-bar')!.shadowRoot!.querySelector('.bar')!;
           resolve({
             enforced,
-            barBackground: getComputedStyle(bar).backgroundColor,
             headerTop: document.querySelector('.site-header')!.getBoundingClientRect().top,
           });
         }, 500);
       }),
   );
   assert.ok(csp.enforced, 'the ?csp page is really under a strict policy');
-  assert.equal(csp.barBackground, 'rgb(14, 17, 22)');
+  assert.equal(await inBar(cspPage, (root) => getComputedStyle(root.querySelector('.bar')!).backgroundColor), 'rgb(14, 17, 22)');
   assert.ok(csp.headerTop >= 44);
   await waitForCount(cspPage, 2);
   console.log('csp: the bar mounted, styled, and reached the session under a strict policy');
