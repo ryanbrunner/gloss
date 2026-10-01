@@ -143,11 +143,19 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   below the bar, and 44px added to the page's own `scroll-padding-top`, so an
   anchor jump lands below the bar and any sticky header the page allows for.
   Fixed and sticky elements placed from the top of the viewport, such as a
-  header, are moved down by the same 44px.
+  header, are moved down by the same 44px. And since `100vh` still measures
+  the whole window, each `vh` length in the page's stylesheets is shortened
+  to match: `100vh` becomes `calc(100vh - 44px)`, so a full-height layout
+  ends at the bottom of the window rather than 44px past it.
 
 ### Known gaps
 
-- Layouts sized to `100vh` overflow by 44px.
+- A `vh` length the bar cannot rewrite still overflows by 44px: one in an
+  inline `style` attribute (including a `--vh` the page sets from
+  `innerHeight`), a cross-origin stylesheet, the page's own adopted or
+  shadow-root sheets, or a rule inserted into a sheet after it loaded, as
+  CSS-in-JS libraries do in production. `vmin`, `vmax` and `min-height`
+  media queries still measure the whole window.
 - A fixed or sticky element inside a web component's shadow root is not
   moved, and sits under the bar.
 - An element inside a web component's shadow root is pinned as the
