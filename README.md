@@ -1,4 +1,10 @@
-# Gloss
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/gloss-glyph-dark.svg">
+    <img src="assets/gloss-glyph-light.svg" alt="" height="24">
+  </picture>
+  Gloss
+</h1>
 
 Review a running web app in a browser with a feedback bar across the top, and
 hand what you wrote to Claude.

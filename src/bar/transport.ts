@@ -10,6 +10,8 @@ export interface Transport {
   /** A general comment, or with a pin, one about an element on the page. */
   add(body: string, pin?: PinDraft): Promise<RoundState>;
   remove(id: string): Promise<RoundState>;
+  /** Changes the text of a comment not yet sent. */
+  edit(id: string, body: string): Promise<RoundState>;
   submit(): Promise<RoundState>;
   /** Refused while there are unsent comments, unless `discardUnsent` says to drop them. */
   approve(discardUnsent: boolean): Promise<RoundState>;
@@ -22,6 +24,7 @@ export type RpcCall =
   | { method: 'state' }
   | { method: 'add'; body: string; pin?: PinDraft }
   | { method: 'remove'; id: string }
+  | { method: 'edit'; id: string; body: string }
   | { method: 'submit' }
   | { method: 'approve'; discardUnsent: boolean };
 
@@ -128,6 +131,7 @@ export function bindingTransport(rpc: Rpc | null): Transport {
     state: () => call({ method: 'state' }),
     add: (body, pin) => call(pin ? { method: 'add', body, pin } : { method: 'add', body }),
     remove: (id) => call({ method: 'remove', id }),
+    edit: (id, body) => call({ method: 'edit', id, body }),
     submit: () => call({ method: 'submit' }),
     approve: (discardUnsent) => call({ method: 'approve', discardUnsent }),
     subscribe: (listener) =>
@@ -168,6 +172,7 @@ export function memoryTransport(seed: DemoRound = {}): Transport {
     state: async () => store.snapshot(),
     add: (body, pin) => act(() => store.add(body, page(), pin)),
     remove: (id) => act(() => store.remove(id)),
+    edit: (id, body) => act(() => store.edit(id, body)),
     submit: () => act(() => store.submit(page())),
     approve: (discardUnsent) => act(() => store.approve(page(), { discardUnsent })),
     // One page, one store: nothing else can change it.

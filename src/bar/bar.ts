@@ -1,6 +1,7 @@
 import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
 import { h, icon, sendOnEnter, sheet } from './dom.js';
-import { Overlay } from './overlay.js';
+import { logo } from './logo.js';
+import { Overlay, type Marker } from './overlay.js';
 import { keepPinnedClear } from './pinned.js';
 import { createPicker, type Picker } from './picker.js';
 import { addScrollPadding } from './scroll-padding.js';
@@ -96,7 +97,6 @@ class Bar {
   private listOpen: boolean;
 
   private readonly bar = h('div', { class: 'bar', role: 'toolbar', 'aria-label': 'Gloss' });
-  private readonly round = h('span', { class: 'round' });
   private readonly interact = h(
     'button',
     { class: 'tool interact', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Interact', title: 'Use the page' },
@@ -112,7 +112,15 @@ class Bar {
   private readonly tools = h('span', { class: 'tools', role: 'group', 'aria-label': 'Tool' }, this.interact, this.select);
   private mode: Mode;
   private picked: Picked | null = null;
-  private readonly overlay = new Overlay({ add: () => this.addPinned(), cancel: () => this.closeComposer() });
+  private readonly overlay = new Overlay({
+    add: () => this.save(),
+    cancel: () => this.closeComposer(),
+    edit: (marker) => this.openExisting(marker),
+  });
+  /** The comment the box is open on to change, rather than a new one. */
+  private editing: string | null = null;
+  /** The box was opened from a marker, so Select mode is not what keeps it open. */
+  private fromMarker = false;
   /** On a phone the tools are one button, Select, which turns Select mode on and off. */
   private readonly narrow = window.matchMedia(NARROW);
   private readonly input = h('textarea', { rows: '1', 'aria-label': 'Add a general comment' });
@@ -164,8 +172,7 @@ class Bar {
   attach(): void {
     this.root.adoptedStyleSheets = [sheet(BAR_STYLES)];
     this.bar.append(
-      h('span', { class: 'mark' }, 'Gloss'),
-      this.round,
+      h('span', { class: 'mark' }, logo()),
       this.tools,
       this.input,
       this.add,
@@ -268,6 +275,8 @@ class Bar {
     this.listOpen = false;
     this.render(this.state);
     this.picked = { el, draft: pinDraftFor(el) };
+    this.editing = null;
+    this.fromMarker = false;
     this.overlay.open(el, this.picked.draft);
   }
 
@@ -301,8 +310,42 @@ class Bar {
     );
   }
 
+  /** The box's button: a new pinned comment, or the one it was opened on. */
+  private save(): void {
+    // A sent comment is shown read-only: Enter in it saves nothing.
+    if (this.overlay.input.readOnly) return;
+    if (this.editing === null) return void this.addPinned();
+    const id = this.editing;
+    const body = this.overlay.input.value;
+    if (!body.trim()) return;
+    this.act(() =>
+      this.transport.edit(id, body).then((s) => {
+        this.closeComposer();
+        return s;
+      }),
+    );
+  }
+
+  /**
+   * A marker was clicked: the box opens on its element with its comment in
+   * it. Placed from the element as it is now, so a comment whose element has
+   * gone from the page is shown in the list instead, where it is still read.
+   */
+  private openExisting(marker: Marker): void {
+    const el = resolvePin(marker.pin);
+    if (!el) return this.setListOpen(true);
+    this.listOpen = false;
+    this.picked = { el, draft: marker.pin };
+    this.editing = marker.sent ? null : marker.id;
+    this.fromMarker = true;
+    this.overlay.openExisting(el, marker);
+    this.render(this.state);
+  }
+
   private closeComposer(): void {
     this.picked = null;
+    this.editing = null;
+    this.fromMarker = false;
     this.overlay.close();
   }
 
@@ -359,7 +402,6 @@ class Bar {
     if (!unsent.length || !reviewing) this.confirming = false;
 
     this.error.textContent = '';
-    this.round.textContent = `Round ${state.round}`;
     this.count.textContent = `(${unsent.length})`;
     this.input.disabled = this.add.disabled = state.phase === 'approved';
     this.renderMode(state);
@@ -387,11 +429,11 @@ class Bar {
     this.interact.setAttribute('aria-pressed', String(!selecting));
     this.select.setAttribute('aria-pressed', String(selecting));
     this.picker.setActive(selecting);
-    if (!selecting && this.overlay.composing) this.closeComposer();
+    if (!selecting && this.overlay.composing && !this.fromMarker) this.closeComposer();
 
     const numbers = pinNumbers(state.comments);
     this.overlay.setMarkers(
-      state.comments.flatMap((c) => (c.pin ? [{ n: numbers.get(c.id)!, body: c.body, pin: c.pin, sent: c.sentIn !== null }] : [])),
+      state.comments.flatMap((c) => (c.pin ? [{ id: c.id, n: numbers.get(c.id)!, body: c.body, pin: c.pin, sent: c.sentIn !== null }] : [])),
     );
   }
 

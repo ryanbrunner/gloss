@@ -50,6 +50,25 @@ describe('CommentStore', () => {
     assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['two']);
   });
 
+  test('edits an unsent comment, trimmed, and leaves it alone for an empty box', () => {
+    const store = new CommentStore();
+    const a = store.add('one');
+    assert.ok(a);
+    assert.equal(store.edit(a.id, '  two  ')?.body, 'two');
+    assert.equal(store.edit(a.id, '   '), null);
+    assert.equal(store.edit('nope', 'three'), null);
+    assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['two']);
+  });
+
+  test('refuses to edit a comment that has gone out', () => {
+    const store = new CommentStore();
+    const a = store.add('one');
+    assert.ok(a);
+    store.submit(PAGE);
+    assert.throws(() => store.edit(a.id, 'two'), /went out in round 1/);
+    assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['one']);
+  });
+
   test('never reuses an id, even after a delete', () => {
     const store = new CommentStore();
     const a = store.add('one');
