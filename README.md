@@ -6,8 +6,8 @@
   Gloss
 </h1>
 
-![Writing a comment pinned to an element](./assets/screenshots/gloss-commenting.png)
-![A round with Claude, and the rounds already sent](./assets/screenshots/gloss-working.png)
+<img src="assets/screenshots/gloss-commenting.png" alt="" width="600">
+<img src="assets/screenshots/gloss-working.png" alt="" width="600">
 
 Review a running web app in a browser with a feedback bar across the top, and
 hand what you wrote to Claude.
