@@ -72,12 +72,12 @@ jobs:
           grep -qxF "  sha256 \"$SHA256\"" "$RUNNER_TEMP/gloss.rb"
           cat "$RUNNER_TEMP/gloss.rb"
 
-      # Before the release, so a missing or wrong token stops it there.
+      # Before the release, so a missing or revoked deploy key stops it there.
       - uses: actions/checkout@v4
         if: env.DRY_RUN != 'true'
         with:
           repository: ryanbrunner/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          ssh-key: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
           path: tap
 
       # Left alone if it exists, so the job can be rerun after a failed push.
