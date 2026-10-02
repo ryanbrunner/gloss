@@ -29,7 +29,7 @@ The release workflow then:
    fields are `X.Y.Z`;
 2. downloads `archive/refs/tags/vX.Y.Z.tar.gz` and hashes it;
 3. makes the formula from the template with that url and sha256, and prints it;
-4. checks out the tap with `HOMEBREW_TAP_TOKEN`;
+4. checks out the tap over SSH with `HOMEBREW_TAP_SSH_KEY`;
 5. creates the GitHub release with generated notes, unless it already exists;
 6. commits `Formula/gloss.rb` to the tap as `gloss X.Y.Z` and pushes to its main.
 
@@ -100,27 +100,39 @@ Keep `tests.yml`. On a push to main it runs `brew test-bot --only-tap-syntax`,
 which lints what the release workflow pushed; it installs and tests formulae
 only on pull requests.
 
-### The token
+### The deploy key
 
-Create a fine-grained personal access token with access to
-`ryanbrunner/homebrew-tap` only, and **Contents: read and write**. Store it
-in this repo:
+The release workflow pushes to the tap over SSH, with a read-write deploy key
+on the tap stored here as `HOMEBREW_TAP_SSH_KEY`. A deploy key rather than a
+personal access token: it is scoped to that one repository by construction, it
+does not expire, and `gh` can create it, so none of this needs a browser.
 
 ```sh
-gh secret set HOMEBREW_TAP_TOKEN -R ryanbrunner/gloss
+ssh-keygen -t ed25519 -N '' -C 'gloss release -> homebrew-tap' -f /tmp/gloss-tap-key
+gh repo deploy-key add /tmp/gloss-tap-key.pub -R ryanbrunner/homebrew-tap \
+  --allow-write --title 'gloss release workflow'
+gh secret set HOMEBREW_TAP_SSH_KEY -R ryanbrunner/gloss < /tmp/gloss-tap-key
+rm /tmp/gloss-tap-key /tmp/gloss-tap-key.pub
 ```
 
-When it expires, the release workflow fails at the tap checkout, before it
-creates the release. Make a new one and set the secret again.
+The redirect into `gh secret set` keeps the key's trailing newline, which it
+needs. Keys `gh` adds belong to its own authentication, so de-authorizing the
+GitHub CLI from the account deletes this one; the release workflow then fails
+at the tap checkout, before it creates the release. Add a key again and set
+the secret again.
 
 ## When something goes wrong
 
 - **The tag does not match a version.** Nothing was published. Delete the
   tag (`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`), fix the
   versions, and tag again.
-- **The push to the tap failed** (no secret, an expired token). Fix the token
-  and rerun the failed job: the release is left as it is, and the formula
+- **The push to the tap failed** (no secret, a deleted deploy key). Fix the
+  key and rerun the failed job: the release is left as it is, and the formula
   is made again from the same tag.
+- **The fix is in `release.yml` itself.** Rerunning is no use: a tag's run
+  always loads the workflow from the tagged commit. Merge the fix, then, as
+  long as the failure was before the release was created and nothing reached
+  the tap, delete the tag and tag the fix instead.
 - **The published formula is broken.** Users already have it, so fix it
   forward: fix `packaging/homebrew/gloss.rb`, bump the patch version, and
   release that. To pull it sooner, revert the commit in the tap
