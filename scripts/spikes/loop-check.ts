@@ -202,42 +202,54 @@ try {
   await comment(page, 'Something to submit');
   // Plain script, as the page would run it (and out of reach of tsx's transform).
   const forged = (await page.evaluate(`(async () => {
-    const controller = window.__playwright__binding__controller__;
     const approve = JSON.stringify({ method: 'approve', discardUnsent: true });
     const root = document.querySelector('gloss-bar').shadowRoot;
     root.querySelector('.submit').click();
     root.querySelector('.approve').click();
-    const results = { glossRpc: typeof window.__glossRpc, rawBinding: typeof window.__playwright__binding__ };
-    results.controllerCall = await controller
-      .callBinding('__glossRpc', approve)
-      .then(() => 'answered', (e) => 'refused: ' + e.message);
-    try { window.__playwright__binding__controller__ = {}; } catch {}
-    results.controllerReplaced = window.__playwright__binding__controller__ !== controller;
-    // A toJSON the page defines would rewrite whatever the bar sends next.
-    Object.defineProperty(Array.prototype, 'toJSON', { configurable: true, value: () => [approve] });
-    root.querySelector('textarea').value = 'sent through a patched toJSON';
+    const globals = ['__glossRpc', '__glossDeliver', '__playwright__binding__', '__playwright__binding__controller__']
+      .filter((name) => name in window);
+    // What a shared realm could not stop: Playwright's callBinding called
+    // Map.prototype.get and new Promise before writing the call out, so a
+    // hook on either could patch JSON in time to turn the bar's call, inside
+    // Playwright's message, into an approval.
+    const { get } = Map.prototype;
+    const { stringify } = JSON;
+    const RealPromise = Promise;
+    const rewrite = () => {
+      JSON.stringify = (value) => stringify(value, (k, v) => (typeof v === 'string' && v.startsWith('{"method"') ? approve : v));
+    };
+    Map.prototype.get = function (key) {
+      rewrite();
+      return get.call(this, key);
+    };
+    window.Promise = function (executor) {
+      rewrite();
+      return new RealPromise(executor);
+    };
+    root.querySelector('textarea').value = 'sent past a hooked Map.prototype.get';
     root.querySelector('.add').click();
-    await new Promise((r) => setTimeout(r, 300));
-    delete Array.prototype.toJSON;
-    results.toJSON = root.querySelector('.error').textContent;
-    return results;
-  })()`)) as { glossRpc: string; rawBinding: string; controllerCall: string; controllerReplaced: boolean; toJSON: string | null };
-  assert.equal(forged.glossRpc, 'undefined', '__glossRpc is off window');
-  assert.equal(forged.rawBinding, 'undefined', "Playwright's raw binding is off window");
-  assert.match(forged.controllerCall, /^refused/, "the controller's stand-in will not call the binding");
-  assert.equal(forged.controllerReplaced, false, 'the stand-in cannot be swapped out');
-  assert.match(forged.toJSON ?? '', /changed how JSON is written/, 'a patched toJSON stops the bar sending');
-  const afterForgery = await roundState();
+    await new RealPromise((r) => setTimeout(r, 300));
+    Map.prototype.get = get;
+    window.Promise = RealPromise;
+    JSON.stringify = stringify;
+    return { globals, error: root.querySelector('.error').textContent };
+  })()`)) as { globals: string[]; error: string | null };
+  assert.deepEqual(forged.globals, [], "neither the binding nor anything of Playwright's is on window");
+  assert.equal(forged.error, '', 'the bar sent without complaint');
+  const afterForgery = await until('the comment sent past the hooks', async () => {
+    const state = await roundState();
+    return state.comments.some((c) => c.body === 'sent past a hooked Map.prototype.get') && state;
+  });
   assert.equal(afterForgery.phase, 'reviewing', 'no submission or approval from the page');
   assert.equal(afterForgery.round, 3);
-  console.log('page script: no __glossRpc, no raw binding, the controller refuses, clicks and a patched toJSON do nothing');
+  console.log('page script: no binding on window; clicks, and a hooked Map.get and Promise patching JSON, do nothing');
 
   // Approve with an unsent comment: the prompt, Cancel, then discard and approve.
   await bar(page, '.bar > .approve').click();
-  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 1 unsent comment\?/);
+  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 2 unsent comments\?/);
   await bar(page, '.confirm button').filter({ hasText: 'Cancel' }).click();
   assert.ok(await bar(page, '.bar > .approve').isVisible());
-  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', 5]);
+  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', 6]);
   const waiting3 = waitInBackground();
   await sleep(300);
   await bar(page, '.bar > .approve').click();
@@ -246,10 +258,11 @@ try {
   assert.deepEqual([approved.approved, approved.round, approved.comments], [true, 3, []]);
   const end = await roundState();
   assert.equal(end.phase, 'approved');
-  assert.ok(!end.comments.some((c) => c.body === 'Something to submit'), 'the discarded comment is gone');
+  const discarded = ['Something to submit', 'sent past a hooked Map.prototype.get'];
+  assert.ok(!end.comments.some((c) => discarded.includes(c.body)), 'the discarded comments are gone');
   assert.ok(end.comments.every((c) => c.sentIn !== null));
   await until('the approved status', async () => (await statusText(page)) === 'Approved');
-  console.log('approve: the prompt counts 1 unsent, Cancel keeps it, Discard & approve prints approved true with no comments');
+  console.log('approve: the prompt counts 2 unsent, Cancel keeps them, Discard & approve prints approved true with no comments');
 
   assert.equal((await gloss(['close'])).code, 0);
   await disconnect();

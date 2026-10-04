@@ -29,8 +29,8 @@ class Gloss < Formula
       Chromium also needs system libraries this formula does not install.
       To install them along with it (apt, via sudo), run instead:
         gloss install-chromium --with-deps
-      Or, if `gloss open` cannot launch it after a plain install, run:
-        npx playwright install-deps chromium
+      That is also the fix if `gloss open` cannot launch it after a plain
+      install.
     EOS
     s + <<~EOS
 

@@ -1,7 +1,8 @@
 /**
  * Checks that a page under Gloss behaves as it would without it: links, a
- * form post, client-side navigation (pushState plus a body swap) and a page
- * served with `X-Frame-Options: DENY`, with the bar present on every step.
+ * form post, client-side navigation (pushState plus a body swap), a popup,
+ * a move to another site and a page served with `X-Frame-Options: DENY`,
+ * with the bar present on every step.
  * Also races two `gloss open` calls and checks only one session starts, and
  * that `gloss close` takes the session's server down with it.
  *
@@ -193,6 +194,33 @@ try {
   await until('popstate url', () => p.url() === `${base}/`);
   await barThere(p);
   console.log('client nav: pushState + body swap kept one bar with its comments; back works');
+
+  // A popup the page opens gets the bar too, though its first document can
+  // load before the session hears of the tab, and what is written there
+  // shows in the first tab.
+  await p.evaluate((u) => void window.open(u), `${base}/about`);
+  const popup = await until('the popup', () => cdp!.contexts().flatMap((c) => c.pages()).find((q) => q !== p));
+  await barThere(popup);
+  await until('count 1 in the popup', async () => (await popup.locator('gloss-bar .toggle').innerText()).includes('(1)'));
+  await popup.locator('gloss-bar textarea').fill('from the popup');
+  await popup.locator('gloss-bar textarea').press('Enter');
+  await until('count 2 in the first tab', async () => (await p.locator('gloss-bar .toggle').innerText()).includes('(2)'));
+  await popup.close();
+  console.log('popup: a window.open tab got the bar, and its comment showed in the first tab');
+
+  // Another site, which Chromium gives another renderer process: the bar
+  // and its binding go with the page, there and back.
+  const otherSite = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+  for (const [to, count] of [[otherSite, 3], [base, 4]] as const) {
+    assert.equal((await gloss(['open', `${to}/`])).code, 0);
+    await until(`${to}/`, () => p.url() === `${to}/`);
+    await barThere(p);
+    await until(`count ${count - 1} on ${to}`, async () => (await p.locator('gloss-bar .toggle').innerText()).includes(`(${count - 1})`));
+    await p.locator('gloss-bar textarea').fill(`written on ${to}`);
+    await p.locator('gloss-bar textarea').press('Enter');
+    await until(`count ${count} on ${to}`, async () => (await p.locator('gloss-bar .toggle').innerText()).includes(`(${count})`));
+  }
+  console.log('cross-site: localhost to 127.0.0.1 and back, the bar answered and took a comment on each');
 
   // gloss close takes the server down.
   const closed = await gloss(['close']);

@@ -19,32 +19,36 @@ export function playwrightCli(): string {
  * spawning playwright.
  */
 export function installChromiumArgs(withDeps: boolean): string[] {
-  return ['install', 'chromium', ...(withDeps ? ['--with-deps'] : [])];
+  return withDeps ? ['install', '--with-deps', 'chromium'] : ['install', 'chromium'];
 }
 
 /**
  * Said after a successful install, on Linux alone: this only fetches the
  * browser, and Chromium there also needs system libraries the download does
- * not include. CI gets them with `playwright install --with-deps` (sudo, in
- * a runner that already grants it); asking for sudo here on someone's own
- * machine would be a surprise, so this names the command instead of running
- * it, unless they asked for it with `--with-deps`, which already did.
+ * not include. `--with-deps` gets them too (sudo, in a runner that already
+ * grants it, or a person typing it as an explicit ask); asking for sudo
+ * unprompted here would be a surprise, so this names the flag instead of
+ * running it. Quiet once `--with-deps` has already installed them.
  */
 export function linuxDepsHint(platform: string, withDeps = false): string | null {
   if (platform !== 'linux' || withDeps) return null;
-  return 'Chromium also needs system libraries on Linux. If `gloss open` cannot launch it, run:\n  npx playwright install-deps chromium\n(or `gloss install-chromium --with-deps` next time, which installs them too)';
+  return 'Chromium also needs system libraries on Linux. If `gloss open` cannot launch it, run:\n  gloss install-chromium --with-deps';
 }
 
 /**
- * `gloss install-chromium`: download the Chromium this Gloss's Playwright
- * drives. `npx playwright install` would fetch whichever Playwright is newest,
- * and with it a browser revision this one does not look for.
+ * `gloss install-chromium [--with-deps]`: download the Chromium this Gloss's
+ * Playwright drives. `npx playwright install` would fetch whichever
+ * Playwright is newest, and with it a browser revision this one does not
+ * look for.
+ *
+ * `--with-deps` also installs the system libraries Chromium needs on Linux,
+ * which Playwright does with `apt-get` under sudo. Plain `install-chromium`
+ * leaves that to `linuxDepsHint` instead of running it unasked; typing
+ * `--with-deps` is that ask.
  */
 export async function installChromium(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() => parseArgs({ args, options: { 'with-deps': { type: 'boolean' } } }));
   const withDeps = values['with-deps'] ?? false;
-  // Playwright's own flag: apt, via sudo, for the libraries Chromium needs to
-  // launch. Opt-in, so the sudo prompt is never a surprise. A no-op on macOS.
   const child = spawn(process.execPath, [playwrightCli(), ...installChromiumArgs(withDeps)], { stdio: 'inherit' });
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);

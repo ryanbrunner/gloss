@@ -23,7 +23,7 @@ const USAGE = `Usage: gloss <command> [options]
   gloss install-chromium [--with-deps]
       Download the Chromium that Gloss's own Playwright drives, once, into
       Playwright's cache (about 150 MB). --with-deps also installs the
-      system libraries Chromium needs, via apt and sudo (Debian/Ubuntu).
+      system libraries it needs on Linux (sudo).
   gloss --version
       Print Gloss's version.
 

@@ -13,11 +13,11 @@ test('finds the CLI of the Playwright Gloss imports, without running it', () => 
 
 test('installChromiumArgs passes --with-deps through only when asked', () => {
   assert.deepEqual(installChromiumArgs(false), ['install', 'chromium']);
-  assert.deepEqual(installChromiumArgs(true), ['install', 'chromium', '--with-deps']);
+  assert.deepEqual(installChromiumArgs(true), ['install', '--with-deps', 'chromium']);
 });
 
 test('linuxDepsHint names install-deps on Linux alone', () => {
-  assert.match(linuxDepsHint('linux') ?? '', /playwright install-deps chromium/);
+  assert.match(linuxDepsHint('linux') ?? '', /gloss install-chromium --with-deps/);
   assert.equal(linuxDepsHint('darwin'), null);
   assert.equal(linuxDepsHint('win32'), null);
 });
