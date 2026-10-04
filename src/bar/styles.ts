@@ -47,7 +47,10 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-ser
  * Everything inside the shadow root. `:host` starts from `all: initial`, with
  * `!important` so a page rule such as `* { box-sizing: … }` or one aimed at
  * custom elements cannot reach the host either; an important declaration in a
- * shadow tree beats one from the page.
+ * shadow tree beats one from the page. That reset also clears the UA
+ * stylesheet's own styles for the `popover` attribute bar.ts sets on the
+ * host (`inset: 0`, `margin: auto`, `display: none` until shown), which are
+ * not `!important` and so lose to it in turn.
  */
 export const BAR_STYLES = `
 :host {
@@ -266,7 +269,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
  * as the page scrolls; never in the way of the pointer, but for the markers
  * and the box.
  */
-.highlight, .marker, .composer { position: fixed; }
+.highlight, .marker, .composer, .selection-comment { position: fixed; }
 .highlight {
   z-index: 1;
   pointer-events: none;
@@ -305,6 +308,19 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
   cursor: pointer;
 }
 .marker.sent { background: ${MUTED}; opacity: 0.55; }
+.selection-comment {
+  z-index: 3;
+  padding: 4px 10px;
+  border: 1px solid ${EDGE};
+  border-radius: 6px;
+  background: ${PANEL};
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  color: ${SKY};
+  font: 600 12px/16px ${FONT};
+  white-space: nowrap;
+  cursor: pointer;
+}
+.selection-comment:hover { background: rgba(56, 189, 248, 0.12); }
 .composer {
   z-index: 3;
   width: min(320px, calc(100vw - 16px));

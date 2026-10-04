@@ -130,7 +130,8 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
 `null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
-`tag`, `text`, `box` and the `viewport`, and the path of its `screenshot`.
+`tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, and
+`quote`, when it was made on a selection.
 
 ## The bar
 
@@ -145,6 +146,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   you press Escape (which closes an open box first) or Interact. On a phone
   the tools are one crosshair button that turns Select on and off. They are
   disabled once the review is approved.
+- In Interact, selecting text on the page offers a **Comment on selection**
+  button beside it; the comment it starts is pinned the same way, with the
+  selected words kept alongside it as a quote.
 - Each pinned comment gets a numbered marker on its element's top right
   corner, which follows it as the page scrolls; hover it to see the comment
   and outline the element. The list shows the same number with the element's
