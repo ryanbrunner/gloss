@@ -186,6 +186,53 @@ try {
   });
   await box.press('j');
   assert.equal(await page.evaluate(() => (window as unknown as { __seen: () => number }).__seen()), 0);
+
+  // document.execCommand edits whatever has focus. It must not be able to
+  // rewrite the comment the reviewer is about to send, which the reviewer's
+  // own trusted Enter would then submit as though it were theirs.
+  await box.fill('the header is broken');
+  await page.evaluate(() => {
+    document.execCommand('selectAll');
+    document.execCommand('insertText', false, 'looks great');
+  });
+  assert.equal(await box.inputValue(), 'the header is broken', 'execCommand did not change the box');
+
+  // A page listener on `document`, in capture, runs ahead of the box's own
+  // listeners for the same event: it could call execCommand from inside a
+  // real keystroke's own dispatch, before the box ever saw that keystroke's
+  // `input`. The guard has to be ahead of that, not just of execCommand on
+  // its own.
+  await box.fill('');
+  await page.evaluate(() =>
+    document.addEventListener(
+      'input',
+      () => {
+        document.execCommand('selectAll');
+        document.execCommand('insertText', false, 'looks great');
+      },
+      { capture: true },
+    ),
+  );
+  await box.pressSequentially('hi');
+  assert.equal(await box.inputValue(), 'hi', 'a nested execCommand, from a capturing input listener, did not win');
+
+  // The same race, from a capturing `beforeinput` listener instead: it runs
+  // ahead of the box's own `beforeinput`, which is where the edit is marked
+  // as trusted.
+  await box.fill('');
+  await page.evaluate(() =>
+    document.addEventListener(
+      'beforeinput',
+      () => {
+        document.execCommand('selectAll');
+        document.execCommand('insertText', false, 'looks great');
+      },
+      { capture: true },
+    ),
+  );
+  await box.pressSequentially('hi');
+  assert.equal(await box.inputValue(), 'hi', 'a nested execCommand, from a capturing beforeinput listener, did not win');
+  console.log('execCommand: could not rewrite the comment box, even raced from a capturing listener');
   await box.fill('');
 
   // The list, and deleting from it.
