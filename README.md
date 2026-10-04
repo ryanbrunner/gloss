@@ -1,4 +1,13 @@
-# Gloss
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/gloss-glyph-dark.svg">
+    <img src="assets/gloss-glyph-light.svg" alt="" height="24">
+  </picture>
+  Gloss
+</h1>
+
+<img src="assets/screenshots/gloss-commenting.png" alt="" width="600">
+<img src="assets/screenshots/gloss-working.png" alt="" width="600">
 
 Review a running web app in a browser with a feedback bar across the top, and
 hand what you wrote to Claude.
@@ -16,12 +25,27 @@ Claude Code plugin in this repo runs that loop for you.
 
 ## Install
 
+With Homebrew:
+
+```sh
+brew install ryanbrunner/tap/gloss
+gloss install-chromium            # once: about 150 MB
+```
+
+`gloss install-chromium` downloads the Chromium that Gloss's own Playwright
+drives, so the browser always matches it. On Linux it also needs system
+libraries that the download does not include; `gloss install-chromium` says
+so and names the command (`npx playwright install-deps chromium`, which asks
+for sudo) rather than running it for you.
+
+### From a checkout
+
 Node 22.12 or later.
 
 ```sh
 npm install
-npx playwright install chromium   # once: about 150 MB
-npm link                          # optional: puts `gloss` on your PATH
+node bin/gloss.js install-chromium   # once: about 150 MB
+npm link                             # optional: puts `gloss` on your PATH
 ```
 
 Without `npm link`, run it as `node bin/gloss.js …` or `npm run gloss -- …`.
@@ -31,9 +55,11 @@ Without `npm link`, run it as `node bin/gloss.js …` or `npm run gloss -- …`.
 The repo is a Claude Code plugin marketplace. With `gloss` on your PATH:
 
 ```
-/plugin marketplace add /path/to/gloss
+/plugin marketplace add ryanbrunner/gloss
 /plugin install gloss@gloss
 ```
+
+From a checkout, `/plugin marketplace add /path/to/gloss` works too.
 
 Then `/gloss http://localhost:3000` opens the page and loops: it waits for
 your round, marks itself working, applies the comments, says it is ready
@@ -45,6 +71,8 @@ with a summary, and waits again, until you approve.
 gloss open <url> [--name N]    show <url> in the Gloss window, starting a session if there is none
 gloss status [--name N] [--json]   exit 0 and say where the session is and its phase, or exit 1 if there is none
 gloss close [--name N]         end the session and close its window
+gloss install-chromium         download the Chromium Gloss drives, once
+gloss --version                print Gloss's version
 
 gloss wait [--name N]          block until the reviewer submits or approves; print the verdict as JSON
 gloss working [message]        the bar says Claude is working, with the message; the reviewer cannot submit
@@ -92,7 +120,7 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 | Route | |
 | --- | --- |
 | `GET /api/health` | `{ok, pid, url}`: the page the window is on now |
-| `GET /api/state` | `{round, phase, message, summary, comments: [{id, body, createdAt, page, sentIn}]}` |
+| `GET /api/state` | `{round, phase, message, summary, comments: [{id, body, createdAt, page, sentIn, pin?}]}` |
 | `GET /api/verdict?wait=N` | the verdict, or `{pending: true}` after N seconds (at most 30); 409 while working, 410 once the session is ending |
 | `POST /api/working` | `{message}`: the agent has the round |
 | `POST /api/ready` | `{summary}`: the agent is done; reloads every page |
@@ -101,11 +129,28 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
-`null` while it is unsent.
+`null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
+`tag`, `text`, `box` and the `viewport`, and the path of its `screenshot`.
 
 ## The bar
 
 - Type a comment and press Enter or Add. Shift+Enter adds a new line.
+- **Interact** and **Select**, beside the round, are the tools. In Interact
+  the page works as usual. In Select, the page's links and buttons do nothing:
+  the element under the pointer is outlined, with its tag and size, and a
+  click opens a comment box beside it, headed with the element's tag and text.
+  Enter or **Add** pins the comment to the element; the session keeps a
+  selector for it and a screenshot of it, taken with the outline and markers
+  hidden. Select stays on after Add or **Cancel**, for the next element, until
+  you press Escape (which closes an open box first) or Interact. On a phone
+  the tools are one crosshair button that turns Select on and off. They are
+  disabled once the review is approved.
+- Each pinned comment gets a numbered marker on its element's top right
+  corner, which follows it as the page scrolls; hover it to see the comment
+  and outline the element. The list shows the same number with the element's
+  tag and text. A marker for an unsent comment stays where the element was if
+  its selector stops finding it. Once a round is sent, its markers are dimmed,
+  and shown only where the selector still finds a visible element.
 - **Comments (n)** counts the comments not yet sent. The list shows those
   first, each with a delete button, then every earlier round under "Sent in
   round N", dimmed and read-only, so you can check what was asked.
@@ -121,29 +166,46 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - Comments belong to the session, not the page, so they survive a reload and
   every tab shows the same list.
 - The bar lives in a shadow root on one `<gloss-bar>` element on `<html>`. Page
-  CSS cannot reach into it and its CSS cannot leak out. The one change to the
-  page's own styles is `html { margin-top: 44px }`, which pushes the page down
-  below the bar.
+  CSS cannot reach into it and its CSS cannot leak out. The changes to the
+  page's own styles are `html { margin-top: 44px }`, which pushes the page down
+  below the bar, and 44px added to the page's own `scroll-padding-top`, so an
+  anchor jump lands below the bar and any sticky header the page allows for.
+  Fixed and sticky elements placed from the top of the viewport, such as a
+  header, are moved down by the same 44px. And since `100vh` still measures
+  the whole window, each `vh` length in the page's stylesheets is shortened
+  to match: `100vh` becomes `calc(100vh - 44px)`, so a full-height layout
+  ends at the bottom of the window rather than 44px past it.
 - The page under review is the code Claude is editing, so it must not be able
   to approve. The bar's script runs in an isolated world: it shares the
   page's DOM but none of its JavaScript, and only that world can reach the
   session. Nothing the page patches (`JSON`, `Map`, `Promise`, a prototype)
-  is on the path a call takes. Submit and Approve act only on trusted clicks,
-  so the page clicking them through the shadow root does nothing, and the
-  session refuses changes from frames and from pages that are not http or
-  https. `scripts/spikes/loop-check.ts` tries each of these from the page.
+  is on the path a call takes. Submit, Approve and a comment's page link act
+  only on trusted clicks, so the page clicking them through the shadow root
+  does nothing, and the session refuses changes from frames and from pages
+  that are not http or https. `scripts/spikes/loop-check.ts` tries each of
+  these from the page.
 
 ### Known gaps
 
-- A `position: fixed; top: 0` header does not move down and sits under the
-  bar. A sticky header starts below the bar but slides under it once you
-  scroll. Layouts sized to `100vh` overflow by 44px.
+- A `vh` length the bar cannot rewrite still overflows by 44px: one in an
+  inline `style` attribute (including a `--vh` the page sets from
+  `innerHeight`), a cross-origin stylesheet, the page's own adopted or
+  shadow-root sheets, or a rule inserted into a sheet after it loaded, as
+  CSS-in-JS libraries do in production. `vmin`, `vmax` and `min-height`
+  media queries still measure the whole window.
+- A fixed or sticky element inside a web component's shadow root is not
+  moved, and sits under the bar.
+- An element inside a web component's shadow root is pinned as the
+  component itself.
+- A pin's selector is the path to the element when it was picked
+  (`#summary > p:nth-of-type(3)`). After the agent's changes it may find a
+  different element, and a sent pin's dimmed marker then sits on that one.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
 
 ## Why Playwright, not a proxy or an iframe
 
-To pin comments to elements later on, the bar needs to reach the page's DOM.
+To pin comments to elements, the bar needs to reach the page's DOM.
 A cross-origin iframe can't do that, and `X-Frame-Options` or a CSP can refuse
 framing altogether. That leaves two choices: a proxy that injects the bar
 into the HTML it serves, or a browser that injects it for us. Gloss drives
@@ -165,7 +227,7 @@ that world can call:
 
 The cost is the Chromium download and a window that isn't your everyday
 browser. If Chromium is missing, `gloss open` exits 1 and says to run
-`npx playwright install chromium`.
+`gloss install-chromium`.
 
 ## Development
 
@@ -179,9 +241,16 @@ npx tsx scripts/spikes/loop-check.ts   # the review loop: rounds, working, ready
 npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
 ```
 
+CI runs all three spikes on every push and pull request, in
+`.github/workflows/ci.yml`. It also installs the packed tarball the way
+Homebrew does and runs it on node 22 and 26, and lints the formula.
+[docs/releasing.md](docs/releasing.md) covers releases.
+
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
 reads `--port` and `PORT`. Query flags make each state of the bar reachable
-by URL, using the same bar with its comments kept in the page:
+by URL, using the same bar with its comments kept in the page. `&pins=N` pins
+the first N comments, sent ones first, and `&pick=N` picks the Nth of the
+same elements; both take numbers, since a selector's `#` would end the query:
 
 | URL | |
 | --- | --- |
@@ -194,7 +263,12 @@ by URL, using the same bar with its comments kept in the page:
 | `/?gloss&summary=…&sent=2` | back with the reviewer, showing Claude's summary |
 | `/?gloss&seed=2&confirm` | the discard-and-approve prompt |
 | `/?gloss&phase=approved&sent=2` | approved |
+| `/?gloss&select` | Select mode, nothing picked |
+| `/?gloss&select&pick=2` | Select mode, commenting on the order total |
+| `/?gloss&seed=3&pins=3` | three comments pinned to storefront elements, with markers |
+| `/?gloss&sent=2&seed=1&pins=3` | two sent pins, dimmed, beside a new one |
 | `/?fixed` | a `position: fixed` header |
+| `/?fullheight` | an app shell sized to `100vh`, the shop scrolling inside it |
 | `/?csp` | served with a strict Content-Security-Policy |
 
 Two environment variables exist for the spike: `GLOSS_HEADLESS=1` runs the

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { verdictSchema } from '../verdict.js';
-import { CommentStore, type RoundState } from './store.js';
+import { CommentStore, pinNumbers, type Pin, type RoundState } from './store.js';
 
 const PAGE = 'http://127.0.0.1:4400/';
 
@@ -48,6 +48,25 @@ describe('CommentStore', () => {
     assert.equal(store.remove(a.id), true);
     assert.equal(store.remove(a.id), false);
     assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['two']);
+  });
+
+  test('edits an unsent comment, trimmed, and leaves it alone for an empty box', () => {
+    const store = new CommentStore();
+    const a = store.add('one');
+    assert.ok(a);
+    assert.equal(store.edit(a.id, '  two  ')?.body, 'two');
+    assert.equal(store.edit(a.id, '   '), null);
+    assert.equal(store.edit('nope', 'three'), null);
+    assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['two']);
+  });
+
+  test('refuses to edit a comment that has gone out', () => {
+    const store = new CommentStore();
+    const a = store.add('one');
+    assert.ok(a);
+    store.submit(PAGE);
+    assert.throws(() => store.edit(a.id, 'two'), /went out in round 1/);
+    assert.deepEqual(store.snapshot().comments.map((c) => c.body), ['one']);
   });
 
   test('never reuses an id, even after a delete', () => {
@@ -248,4 +267,60 @@ describe('the verdicts a store makes', () => {
     store.add('dropped');
     assert.ok(verdictSchema.safeParse(store.approve(null, { discardUnsent: true })).success);
   });
+
+  test('send a pinned comment as `pinned`, with its pin as the target', () => {
+    const store = new CommentStore();
+    store.add('Price is wrong', PAGE, pin());
+    store.add('The header is too tall', PAGE);
+    const verdict = store.submit(PAGE);
+    assert.ok(verdictSchema.safeParse(verdict).success);
+    assert.deepEqual(verdict.comments.map((c) => c.kind), ['pinned', 'general']);
+    assert.deepEqual(verdict.comments[0]?.target, pin());
+    assert.equal(verdict.comments[1]?.target, null);
+  });
 });
+
+describe('pins', () => {
+  test('keep with their comment, as a copy rather than the caller’s', () => {
+    const store = new CommentStore(() => 1000);
+    const given = pin();
+    const added = store.add('  Price is wrong ', PAGE, given);
+    given.box.x = 999;
+    assert.deepEqual(added, { id: 'c1', body: 'Price is wrong', createdAt: 1000, page: PAGE, sentIn: null, pin: pin() });
+    const snap = store.snapshot();
+    snap.comments[0]!.pin!.box.y = 999;
+    assert.deepEqual(store.snapshot().comments[0]?.pin, pin());
+  });
+
+  test('are absent from a general comment', () => {
+    const store = new CommentStore();
+    store.add('general');
+    assert.equal('pin' in store.snapshot().comments[0]!, false);
+  });
+});
+
+describe('pinNumbers', () => {
+  test('numbers the pinned comments in order, skipping general ones', () => {
+    const store = new CommentStore();
+    store.add('general');
+    const a = store.add('first pin', PAGE, pin());
+    store.add('another general');
+    const b = store.add('second pin', PAGE, pin());
+    assert.ok(a && b);
+    assert.deepEqual([...pinNumbers(store.snapshot().comments)], [
+      [a.id, 1],
+      [b.id, 2],
+    ]);
+  });
+});
+
+function pin(): Pin {
+  return {
+    url: 'http://127.0.0.1:4400/',
+    selector: 'section.products > article:nth-of-type(2) > p',
+    tag: 'p',
+    text: '$16.00',
+    box: { x: 300, y: 420, width: 180, height: 20 },
+    viewport: { width: 1280, height: 800 },
+  };
+}

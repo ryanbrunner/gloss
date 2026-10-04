@@ -1,4 +1,4 @@
-import { CommentStore, type Phase, type RoundState } from '../session/store.js';
+import { CommentStore, type Phase, type Pin, type PinDraft, type RoundState } from '../session/store.js';
 
 /**
  * How the bar reaches whatever holds the round. The bar does not know which
@@ -7,8 +7,11 @@ import { CommentStore, type Phase, type RoundState } from '../session/store.js';
  */
 export interface Transport {
   state(): Promise<RoundState>;
-  add(body: string): Promise<RoundState>;
+  /** A general comment, or with a pin, one about an element on the page. */
+  add(body: string, pin?: PinDraft): Promise<RoundState>;
   remove(id: string): Promise<RoundState>;
+  /** Changes the text of a comment not yet sent. */
+  edit(id: string, body: string): Promise<RoundState>;
   submit(): Promise<RoundState>;
   /** Refused while there are unsent comments, unless `discardUnsent` says to drop them. */
   approve(discardUnsent: boolean): Promise<RoundState>;
@@ -19,8 +22,9 @@ export interface Transport {
 /** What the bar asks of the session. See `handleRpc` in ../session/browser.ts. */
 export type RpcCall =
   | { method: 'state' }
-  | { method: 'add'; body: string }
+  | { method: 'add'; body: string; pin?: PinDraft }
   | { method: 'remove'; id: string }
+  | { method: 'edit'; id: string; body: string }
   | { method: 'submit' }
   | { method: 'approve'; discardUnsent: boolean };
 
@@ -81,8 +85,9 @@ export function bindingTransport(): Transport {
       : Promise.reject(new Error('the Gloss session is not connected'));
   return {
     state: () => call({ method: 'state' }),
-    add: (body) => call({ method: 'add', body }),
+    add: (body, pin) => call(pin ? { method: 'add', body, pin } : { method: 'add', body }),
     remove: (id) => call({ method: 'remove', id }),
+    edit: (id, body) => call({ method: 'edit', id, body }),
     submit: () => call({ method: 'submit' }),
     approve: (discardUnsent) => call({ method: 'approve', discardUnsent }),
     subscribe: (listener) => listeners.push(listener),
@@ -98,14 +103,21 @@ export interface DemoRound {
   phase?: Exclude<Phase, 'reviewing'>;
   message?: string;
   summary?: string;
+  /** The elements the first comments are pinned to, the sent ones first. */
+  targets?: DemoTarget[];
 }
+
+/** Enough of a pin for the demo to find its element by. */
+export type DemoTarget = Pick<Pin, 'selector' | 'tag' | 'text'>;
 
 /**
  * The demo page's transport: the same store the session uses, kept in the
- * page. With nobody to pick a round up, a submitted one stays submitted.
+ * page. With nobody to pick a round up, a submitted one stays submitted, and
+ * with no session to take them, its pins have no screenshots.
  */
 export function memoryTransport(seed: DemoRound = {}): Transport {
-  const store = demoStore(seed);
+  // The page, so the seeded pins are this page's and get their markers.
+  const store = demoStore(seed, location.href);
   const page = () => location.href;
   const act = async (change: () => unknown) => {
     change();
@@ -113,8 +125,9 @@ export function memoryTransport(seed: DemoRound = {}): Transport {
   };
   return {
     state: async () => store.snapshot(),
-    add: (body) => act(() => store.add(body, page())),
+    add: (body, pin) => act(() => store.add(body, page(), pin)),
     remove: (id) => act(() => store.remove(id)),
+    edit: (id, body) => act(() => store.edit(id, body)),
     submit: () => act(() => store.submit(page())),
     approve: (discardUnsent) => act(() => store.approve(page(), { discardUnsent })),
     // One page, one store: nothing else can change it.
@@ -122,22 +135,40 @@ export function memoryTransport(seed: DemoRound = {}): Transport {
   };
 }
 
-/** Plays the seed through the store as a reviewer and an agent would have. */
+/**
+ * Plays the seed through the store as a reviewer and an agent would have.
+ * No DOM: the tests run it in Node. A seeded pin has no box of its own, and
+ * its marker is placed from its selector alone.
+ */
 export function demoStore(seed: DemoRound, page: string | null = null): CommentStore {
   const store = new CommentStore();
+  const targets: Array<DemoTarget | undefined> = [...(seed.targets ?? [])];
+  const pin = (): Pin | undefined => {
+    const target = targets.shift();
+    return target && {
+      url: page ?? '',
+      ...target,
+      box: { x: 0, y: 0, width: 0, height: 0 },
+      viewport: { width: 1280, height: 800 },
+    };
+  };
   const sent = [...(seed.sent ?? [])];
   // Submitted, working and a summary all need a round to have gone out.
   const needsRound = seed.phase === 'submitted' || seed.phase === 'working' || seed.summary !== undefined;
-  if (needsRound && !sent.length) sent.push('The header is too tall');
+  if (needsRound && !sent.length) {
+    sent.push('The header is too tall');
+    // Stood in for the round, and pinned to nothing: the targets are the seed's.
+    targets.unshift(undefined);
+  }
   for (let i = 0; i < sent.length; i += 2) {
-    for (const body of sent.slice(i, i + 2)) store.add(body, page);
+    for (const body of sent.slice(i, i + 2)) store.add(body, page, pin());
     store.submit(page);
     const last = i + 2 >= sent.length;
     if (!last) store.ready(null);
     else if (seed.phase === 'working') store.working(seed.message ?? null);
     else if (seed.phase !== 'submitted') store.ready(seed.summary ?? null);
   }
-  for (const body of seed.comments ?? []) store.add(body, page);
+  for (const body of seed.comments ?? []) store.add(body, page, pin());
   if (seed.phase === 'approved') store.approve(page, { discardUnsent: true });
   return store;
 }

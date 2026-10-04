@@ -38,7 +38,7 @@
               "general",
               "pinned"
             ],
-            "description": "`general` is the only kind written in version 1. `pinned` is reserved for comments on an element."
+            "description": "`general` is a comment on the page as a whole; `pinned` is one about an element on it."
           },
           "body": {
             "type": "string",
@@ -74,7 +74,7 @@
                 "type": "null"
               }
             ],
-            "description": "What a pinned comment points at. Null for a general comment; its shape arrives with pinning."
+            "description": "What a pinned comment points at, and null for a general comment: the element's `url`, a CSS `selector` that matched it, its `tag`, visible `text`, `box` and the `viewport` it was measured in, the `quote` the reviewer selected, and a `screenshot` of it. The screenshot is a path belonging to the session that wrote the verdict, and it is deleted when that session stops. More fields may be added, so read the ones you know."
           }
         },
         "required": [

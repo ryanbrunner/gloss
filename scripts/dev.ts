@@ -16,7 +16,13 @@
  *   &summary= what Claude says it changed, back with the reviewer
  *   &list     start with the comment list open
  *   &confirm  start with the discard-and-approve prompt open
+ *   &pins=N   pin the first N of those comments, sent ones first, to SEED_TARGETS
+ *   &select   start in Select mode
+ *   &pick=N   start in Select mode with SEED_TARGETS' Nth (from 1) picked and the comment box open
  *   ?fixed    a header that is position: fixed rather than sticky
+ *   ?fullheight
+ *             an app shell sized to 100vh, with the products scrolling
+ *             inside it rather than the page
  *   ?csp      sent with a strict Content-Security-Policy. `gloss open` still
  *             gets its bar onto it; `?gloss` does not, as its script is inline.
  */
@@ -24,7 +30,8 @@ import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bundleBar } from '../src/bar/bundle.js';
-import type { DemoRound } from '../src/bar/transport.js';
+import type { Mode } from '../src/bar/bar.js';
+import type { DemoRound, DemoTarget } from '../src/bar/transport.js';
 
 const FIXTURE = new URL('../fixtures/storefront/', import.meta.url);
 const DEFAULT_PORT = 4400;
@@ -41,16 +48,41 @@ export const SEED_COMMENTS = [
   'The footer links are too small to tap on a phone.',
 ];
 
+/**
+ * The storefront element each of SEED_COMMENTS is about, for `&pins` and
+ * `&pick`. Those flags take a number rather than a selector, whose `#` would
+ * end the query and start the URL's fragment.
+ */
+export const SEED_TARGETS: DemoTarget[] = [
+  { selector: '.products > article:nth-of-type(1)', tag: 'article', text: 'Canvas tote $24.00' },
+  { selector: '#summary > p:nth-of-type(3)', tag: 'p', text: 'Total $43.20' },
+  { selector: '.site-header > .cart', tag: 'a', text: 'Cart (2)' },
+  { selector: '.products > article:nth-of-type(2) > p', tag: 'p', text: '$16.00' },
+  { selector: '.products > article:nth-of-type(3)', tag: 'article', text: 'Linen apron $38.00' },
+  { selector: '.site-header > .brand', tag: 'a', text: 'Storefront' },
+];
+
 const PHASES = ['submitted', 'working', 'approved'] as const;
 
 /** How many of SEED_COMMENTS a flag asks for, within those left over. */
 const count = (raw: string | null, left: number) => Math.max(0, Math.min(Number(raw) || 0, left));
 
+export interface DemoOptions {
+  round: DemoRound;
+  listOpen: boolean;
+  confirmOpen: boolean;
+  mode?: Mode;
+  /** The selector of the element picked. */
+  pick?: string;
+}
+
 /** The options `GlossDemo.mount` gets for a query: the demo round, and what is open. */
-export function demoOptions(query: URLSearchParams): { round: DemoRound; listOpen: boolean; confirmOpen: boolean } {
+export function demoOptions(query: URLSearchParams): DemoOptions {
   const sentCount = count(query.get('sent'), SEED_COMMENTS.length);
   const seedCount = count(query.get('seed'), SEED_COMMENTS.length - sentCount);
+  const pinCount = count(query.get('pins'), sentCount + seedCount);
   const phase = PHASES.find((p) => p === query.get('phase'));
+  const pick = SEED_TARGETS[Number(query.get('pick')) - 1];
   return {
     round: {
       sent: SEED_COMMENTS.slice(0, sentCount),
@@ -58,9 +90,12 @@ export function demoOptions(query: URLSearchParams): { round: DemoRound; listOpe
       ...(phase ? { phase } : {}),
       ...(query.get('msg') ? { message: query.get('msg')! } : {}),
       ...(query.get('summary') ? { summary: query.get('summary')! } : {}),
+      ...(pinCount ? { targets: SEED_TARGETS.slice(0, pinCount) } : {}),
     },
     listOpen: query.has('list'),
     confirmOpen: query.has('confirm'),
+    ...(query.has('select') || pick ? { mode: 'select' as const } : {}),
+    ...(pick ? { pick: pick.selector } : {}),
   };
 }
 
@@ -99,7 +134,8 @@ const inlineSafe = (text: string) => text.replace(/<\/script/gi, '<\\/script');
 export function renderPage(html: string, query: URLSearchParams, demoBar: string | null): Page {
   const headers: Record<string, string> = {};
   let page = html;
-  if (query.has('fixed')) page = page.replace('<body>', '<body class="fixed-header">');
+  const classes = [query.has('fixed') && 'fixed-header', query.has('fullheight') && 'full-height'].filter(Boolean);
+  if (classes.length) page = page.replace('<body>', `<body class="${classes.join(' ')}">`);
   if (query.has('csp')) headers['content-security-policy'] = STRICT_CSP;
   if (query.has('gloss') && demoBar !== null) {
     const mount = `GlossDemo.mount(${JSON.stringify(demoOptions(query)).replace(/</g, '\\u003c')});`;
@@ -152,5 +188,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`Storefront fixture at http://127.0.0.1:${actual}/ (from ${fileURLToPath(FIXTURE)})`);
     console.log(`With the demo bar:  http://127.0.0.1:${actual}/?gloss&seed=2&list`);
     console.log(`Claude working:     http://127.0.0.1:${actual}/?gloss&sent=2&phase=working&msg=Tightening%20the%20header`);
+    console.log(`Pinned comments:    http://127.0.0.1:${actual}/?gloss&seed=3&pins=3`);
   });
 }

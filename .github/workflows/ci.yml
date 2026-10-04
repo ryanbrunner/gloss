@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The browser spikes: the only checks that drive a real Chromium through
+  # `gloss open`, so `npm test` leaves them out. Each runs headless on its own.
+  spikes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx tsx scripts/spikes/open-check.ts
+      - run: npx tsx scripts/spikes/loop-check.ts
+        if: ${{ !cancelled() }}
+      - run: npx tsx scripts/spikes/nav-check.ts
+        if: ${{ !cancelled() }}
+
+  # Gloss as Homebrew installs it: packed through the `files` allowlist,
+  # installed with no install scripts, and run from node_modules rather than
+  # the checkout, on the repo's node (.tool-versions) and on Homebrew's.
+  packed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node-version-file: .tool-versions
+          - node-version: 26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          node-version-file: ${{ matrix.node-version-file }}
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+      - run: npm install --global --ignore-scripts --prefix "$RUNNER_TEMP/g" "$RUNNER_TEMP"/gloss-*.tgz
+      - name: gloss --version prints the package's version
+        run: |
+          version=$("$RUNNER_TEMP/g/bin/gloss" --version)
+          echo "$version"
+          test "$version" = "$(node -p 'require("./package.json").version')"
+      # Exit 1 alone could as well be a crash, so the answer is checked too.
+      - name: gloss status says there is no session
+        working-directory: ${{ runner.temp }}
+        run: |
+          code=0
+          out=$(GLOSS_HOME="$RUNNER_TEMP/home" "$RUNNER_TEMP/g/bin/gloss" status --json) || code=$?
+          echo "$out"
+          test "$code" = 1
+          test "$(jq -r .running <<<"$out")" = false
+
+  # The formula template, linted, audited, and actually installed from a tap,
+  # as the published copy is: Homebrew's rules for formulae go by where the
+  # file sits, and style/audit alone never builds it. docs/releasing.md has
+  # the by-hand version of this recipe.
+  formula:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: git archive --prefix=gloss/ HEAD | gzip > "$RUNNER_TEMP/gloss.tar.gz"
+      - run: brew tap-new --no-git local/gloss-check
+      - name: Render the formula with the tarball's file:// url and sha256
+        run: |
+          sed -e "s|^  url \".*\"$|  url \"file://$RUNNER_TEMP/gloss.tar.gz\"|" \
+              -e "s|^  sha256 \".*\"$|  sha256 \"$(shasum -a 256 "$RUNNER_TEMP/gloss.tar.gz" | cut -d' ' -f1)\"|" \
+              packaging/homebrew/gloss.rb > "$(brew --repository local/gloss-check)/Formula/gloss.rb"
+      - run: brew style local/gloss-check/gloss
+      - run: brew audit --strict --formula local/gloss-check/gloss
+      - run: brew install --build-from-source local/gloss-check/gloss
+      - run: brew test local/gloss-check/gloss

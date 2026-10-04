@@ -1,10 +1,12 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { chromium, type Browser, type CDPSession, type Page } from 'playwright';
 import { z } from 'zod';
 import { bundleBar } from '../bar/bundle.js';
+import { BAR_HEIGHT } from '../bar/styles.js';
 import { BINDING, DELIVER, type Delivery } from '../bar/transport.js';
 import { firstLine } from './server.js';
-import type { CommentStore, RoundState } from './store.js';
+import type { Box, CommentStore, Pin, RoundState } from './store.js';
 
 /**
  * The browser half of a session: a Playwright Chromium whose every page gets
@@ -28,7 +30,7 @@ import type { CommentStore, RoundState } from './store.js';
  * launched dies with the process that launched it.
  */
 
-const INSTALL_HINT = 'Run `npx playwright install chromium`.';
+const INSTALL_HINT = 'Run `gloss install-chromium`.';
 
 /** Why Chromium cannot start, before trying: said by `gloss open` rather than found in a log. */
 export function chromiumMissing(): string | null {
@@ -38,13 +40,30 @@ export function chromiumMissing(): string | null {
 
 export class BrowserUnavailable extends Error {}
 
+const box = z.object({ x: z.number(), y: z.number(), width: z.number().min(0), height: z.number().min(0) });
+
+/** A pin as the page sends it: everything but the screenshot, which only the session takes. */
+const pinDraft = z.strictObject({
+  url: z.string().max(4_000),
+  selector: z.string().min(1).max(4_000),
+  tag: z.string().max(100),
+  text: z.string().max(1_000),
+  box,
+  viewport: z.object({ width: z.number().min(0), height: z.number().min(0) }),
+  quote: z.string().max(4_000).optional(),
+});
+
 const rpcCall = z.discriminatedUnion('method', [
   z.object({ method: z.literal('state') }),
-  z.object({ method: z.literal('add'), body: z.string().max(20_000) }),
+  z.object({ method: z.literal('add'), body: z.string().max(20_000), pin: pinDraft.optional() }),
   z.object({ method: z.literal('remove'), id: z.string() }),
+  z.object({ method: z.literal('edit'), id: z.string(), body: z.string().max(20_000) }),
   z.object({ method: z.literal('submit') }),
   z.object({ method: z.literal('approve'), discardUnsent: z.boolean() }),
 ]);
+
+/** Takes a picture of a pinned element, and says where it put it, or nothing if it could not. */
+export type Capture = (pin: Pin) => Promise<string | undefined>;
 
 /** Where a call on the binding came from, as Playwright saw it rather than as the page says. */
 export interface RpcSource {
@@ -61,17 +80,65 @@ export interface RpcSource {
  * a page that is not on http or https (a blank popup the page opened and
  * scripts).
  */
-export function handleRpc(store: CommentStore, call: unknown, from: RpcSource): RoundState {
+export async function handleRpc(
+  store: CommentStore,
+  call: unknown,
+  from: RpcSource,
+  capture?: Capture,
+): Promise<RoundState> {
   const parsed = rpcCall.safeParse(call);
   if (!parsed.success) throw new Error('Gloss did not understand that request');
   const { data } = parsed;
   if (data.method === 'state') return store.snapshot();
   if (!from.topFrame || !/^https?:/.test(from.url)) throw new Error('Gloss takes changes only from the page under review');
-  if (data.method === 'add') store.add(data.body, from.url);
+  if (data.method === 'add') {
+    // The draft is the page's; the screenshot is the session's alone.
+    const pin: Pin | undefined = data.pin && { ...data.pin };
+    if (pin && data.body.trim() && capture) pin.screenshot = await capture(pin);
+    store.add(data.body, from.url, pin);
+  }
   if (data.method === 'remove') store.remove(data.id);
+  // The pin does not move, so the screenshot taken for it still stands.
+  if (data.method === 'edit') store.edit(data.id, data.body);
   if (data.method === 'submit') store.submit(from.url);
   if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
   return store.snapshot();
+}
+
+/**
+ * The part of an element's box to photograph, in the viewport's coordinates:
+ * what is on screen and not under the bar. Null when none of it is.
+ */
+export function visibleClip(
+  pin: Pin,
+  view: { scrollX: number; scrollY: number; width: number; height: number },
+): Box | null {
+  const left = Math.max(pin.box.x - view.scrollX, 0);
+  const top = Math.max(pin.box.y - view.scrollY, BAR_HEIGHT);
+  const right = Math.min(pin.box.x - view.scrollX + pin.box.width, view.width);
+  const bottom = Math.min(pin.box.y - view.scrollY + pin.box.height, view.height);
+  if (right - left < 1 || bottom - top < 1) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * Photographs a pinned element on the page that pinned it, while it is still
+ * where the reviewer saw it. The bar hides its own markers for the moment
+ * this takes, so the picture is of the page alone.
+ */
+async function screenshot(page: Page, pin: Pin, dir: string, name: string): Promise<string | undefined> {
+  try {
+    const view = await page.evaluate(() => ({ scrollX, scrollY, width: innerWidth, height: innerHeight }));
+    const clip = visibleClip(pin, view);
+    if (!clip) return undefined;
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${name}.png`);
+    await page.screenshot({ path, clip });
+    return path;
+  } catch (e) {
+    console.error(`[gloss] could not photograph ${pin.selector}: ${firstLine(e)}`);
+    return undefined;
+  }
 }
 
 const rpcRequest = z.object({ id: z.number(), call: z.unknown() });
@@ -81,7 +148,12 @@ const rpcRequest = z.object({ id: z.number(), call: z.unknown() });
  * ../bar/transport.ts sends, and the answer to hand back. A payload that is
  * not a numbered call gets no answer, since there is nothing to answer it by.
  */
-export function answerRpc(store: CommentStore, payload: string, from: RpcSource): Delivery | null {
+export async function answerRpc(
+  store: CommentStore,
+  payload: string,
+  from: RpcSource,
+  capture?: Capture,
+): Promise<Delivery | null> {
   let request: unknown;
   try {
     request = JSON.parse(payload);
@@ -92,7 +164,7 @@ export function answerRpc(store: CommentStore, payload: string, from: RpcSource)
   if (!parsed.success) return null;
   const { id, call } = parsed.data;
   try {
-    return { id, state: handleRpc(store, call, from) };
+    return { id, state: await handleRpc(store, call, from, capture) };
   } catch (e) {
     return { id, error: firstLine(e) };
   }
@@ -111,9 +183,10 @@ interface BarPage {
 
 /**
  * Puts the bar in `page`, in the gloss world of every frame, now and on every
- * new document, and answers its calls from `store`.
+ * new document, and answers its calls from `store`, photographing pinned
+ * elements with `capture`.
  */
-async function injectBar(page: Page, bundle: string, store: CommentStore): Promise<BarPage> {
+async function injectBar(page: Page, bundle: string, store: CommentStore, capture: Capture): Promise<BarPage> {
   const cdp = await page.context().newCDPSession(page);
   const { frameTree } = await cdp.send('Page.getFrameTree');
   const bar: BarPage = { cdp, mainFrame: frameTree.frame.id, worlds: new Map() };
@@ -126,8 +199,9 @@ async function injectBar(page: Page, bundle: string, store: CommentStore): Promi
   cdp.on('Runtime.bindingCalled', ({ name, payload, executionContextId }) => {
     if (name !== BINDING) return;
     const topFrame = bar.worlds.get(executionContextId) === bar.mainFrame;
-    const reply = answerRpc(store, payload, { url: page.url(), topFrame });
-    if (reply) void deliver(bar, executionContextId, reply);
+    void answerRpc(store, payload, { url: page.url(), topFrame }, capture).then((reply) => {
+      if (reply) void deliver(bar, executionContextId, reply);
+    });
   });
   // Without the Page domain on, this session's scripts run only in the
   // documents there now, and none after a navigation.
@@ -166,6 +240,8 @@ export interface BrowserOptions {
   headless: boolean;
   /** A DevTools port, so the end-to-end spike can look inside the window. */
   cdpPort?: number;
+  /** Where pinned elements' screenshots go. */
+  shotsDir: string;
 }
 
 export async function openBrowser(url: string, store: CommentStore, options: BrowserOptions): Promise<SessionBrowser> {
@@ -186,6 +262,7 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
     ignoreHTTPSErrors: true,
   });
   const bundle = await bundleBar('session');
+  let shots = 0;
 
   // Closing the window does not disconnect a launched browser: left alone,
   // the session would sit there with nothing to show. The last page closing
@@ -201,7 +278,8 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
   const barOf = (page: Page) => {
     let bar = bars.get(page);
     if (!bar) {
-      bar = injectBar(page, bundle, store).catch((e: unknown) => {
+      const capture: Capture = (pin) => screenshot(page, pin, options.shotsDir, `pin-${++shots}`);
+      bar = injectBar(page, bundle, store, capture).catch((e: unknown) => {
         if (!page.isClosed()) console.error(`[gloss] could not put the bar in ${page.url()}: ${firstLine(e)}`);
         return null;
       });

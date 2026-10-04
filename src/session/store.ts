@@ -17,6 +17,38 @@ import type { Verdict } from '../verdict.js';
  * asking for it twice gets the same answer rather than losing a round.
  */
 
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where a comment was made, for someone who cannot see the screen: enough to
+ * find the element again, and the code that draws it.
+ */
+export interface Pin {
+  /** The page, as it was when the comment was made. */
+  url: string;
+  /** A CSS selector that matched this one element when it was picked. */
+  selector: string;
+  tag: string;
+  /** The element's visible text, squeezed to one line and cut short. */
+  text: string;
+  /** Where the element was, in CSS pixels from the top left of the document. */
+  box: Box;
+  /** The window's size then, since a layout can depend on it. */
+  viewport: { width: number; height: number };
+  /** The words the reviewer selected, when they commented on a selection. */
+  quote?: string;
+  /** A PNG of the element, as the session saw it. Set by the session, never the page. */
+  screenshot?: string;
+}
+
+/** A pin as the page makes it, before the session has photographed the element. */
+export type PinDraft = Omit<Pin, 'screenshot'>;
+
 export type Phase = 'reviewing' | 'submitted' | 'working' | 'approved';
 
 export interface Comment {
@@ -27,6 +59,8 @@ export interface Comment {
   page: string | null;
   /** The round it went out in, or null while it is still the reviewer's to change. */
   sentIn: number | null;
+  /** Absent for a general comment. */
+  pin?: Pin;
 }
 
 /** What the bar renders, and what `GET /api/state` answers with. */
@@ -61,7 +95,7 @@ export class CommentStore {
       phase: this.phase,
       message: this.message,
       summary: this.summary,
-      comments: this.comments.map((c) => ({ ...c })),
+      comments: this.comments.map(copy),
     };
   }
 
@@ -71,14 +105,15 @@ export class CommentStore {
   }
 
   /** A comment is its text trimmed; one with nothing in it is not added. */
-  add(body: string, page: string | null = null): Comment | null {
+  add(body: string, page: string | null = null, pin?: Pin): Comment | null {
     const text = body.trim();
     if (!text) return null;
     if (this.phase === 'approved') throw new Error('the review is approved; there is nothing more to comment on');
-    const comment = { id: `c${++this.seq}`, body: text, createdAt: this.now(), page, sentIn: null };
+    const comment: Comment = { id: `c${++this.seq}`, body: text, createdAt: this.now(), page, sentIn: null };
+    if (pin) comment.pin = copyPin(pin);
     this.comments.push(comment);
     this.changed();
-    return { ...comment };
+    return copy(comment);
   }
 
   /** False when there was no such comment, which is not worth telling anyone about. */
@@ -89,6 +124,22 @@ export class CommentStore {
     this.comments = this.comments.filter((c) => c !== comment);
     this.changed();
     return true;
+  }
+
+  /**
+   * Changes an unsent comment's text. Null when there is no such comment, or
+   * nothing to put in it: an empty box leaves the comment as it was, and the
+   * list is where a comment is deleted.
+   */
+  edit(id: string, body: string): Comment | null {
+    const text = body.trim();
+    if (!text) return null;
+    const comment = this.comments.find((c) => c.id === id);
+    if (!comment) return null;
+    if (comment.sentIn !== null) throw new Error(`that comment went out in round ${comment.sentIn} and cannot be changed`);
+    comment.body = text;
+    this.changed();
+    return copy(comment);
   }
 
   /** Sends every comment not yet sent as this round, and starts the next. */
@@ -102,7 +153,12 @@ export class CommentStore {
       approved: false,
       round: this.round,
       page,
-      comments: unsent.map((c) => ({ ...c, sentIn: this.round, kind: 'general' as const, target: null })),
+      comments: unsent.map(({ pin, ...c }) => ({
+        ...c,
+        sentIn: this.round,
+        kind: pin ? ('pinned' as const) : ('general' as const),
+        target: pin ? target(pin) : null,
+      })),
     };
     this.round++;
     this.phase = 'submitted';
@@ -167,6 +223,19 @@ export class CommentStore {
     const state = this.snapshot();
     for (const listener of this.listeners) listener(state);
   }
+}
+
+const copyPin = (pin: Pin): Pin => ({ ...pin, box: { ...pin.box }, viewport: { ...pin.viewport } });
+
+/** A pin as a verdict's `target`: the same fields, as the loose record the schema takes. */
+const target = (pin: Pin): Record<string, unknown> => ({ ...copyPin(pin) });
+const copy = (c: Comment): Comment => (c.pin ? { ...c, pin: copyPin(c.pin) } : { ...c });
+
+/** The markers' numbers: pinned comments count 1, 2, 3 in the order they were made. */
+export function pinNumbers(comments: Comment[]): Map<string, number> {
+  const numbers = new Map<string, number>();
+  for (const c of comments) if (c.pin) numbers.set(c.id, numbers.size + 1);
+  return numbers;
 }
 
 const PHASE_WORDS: Record<Phase, string> = {
