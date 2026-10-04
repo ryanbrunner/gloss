@@ -20,14 +20,17 @@ class Gloss < Formula
   def caveats
     s = <<~EOS
       Gloss drives a Chromium of its own. Download it once (about 150 MB,
-      into Playwright's cache, ~/Library/Caches/ms-playwright on macOS):
+      into Playwright's cache: ~/Library/Caches/ms-playwright on macOS,
+      ~/.cache/ms-playwright on Linux):
         gloss install-chromium
     EOS
     s += <<~EOS if OS.linux?
 
       Chromium also needs system libraries this formula does not install.
-      If `gloss open` cannot launch it after that, run:
-        npx playwright install-deps chromium
+      To install them along with it (apt, via sudo), run instead:
+        gloss install-chromium --with-deps
+      That is also the fix if `gloss open` cannot launch it after a plain
+      install.
     EOS
     s + <<~EOS
 
