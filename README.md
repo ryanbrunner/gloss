@@ -33,7 +33,8 @@ gloss install-chromium            # once: about 150 MB
 ```
 
 `gloss install-chromium` downloads the Chromium that Gloss's own Playwright
-drives, so the browser always matches it.
+drives, so the browser always matches it. On Linux, add `--with-deps` to
+also install the system libraries Chromium needs to launch (apt, via sudo).
 
 ### From a checkout
 
