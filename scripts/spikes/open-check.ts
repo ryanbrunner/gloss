@@ -413,14 +413,14 @@ try {
   // On a narrow window the status line ("Sent round 1...") takes a line of
   // its own under the bar, and a fixed header has to clear that too.
   await cspPage.setViewportSize({ width: 390, height: 700 });
-  await gloss(['open', `${base}/?fixed`]);
+  assert.equal((await gloss(['open', `${base}/?fixed`])).code, 0);
   await until('the ?fixed page', () => pages[0]!.url().endsWith('/?fixed'));
   await until(
     'the fixed header below the bar and the status line',
     async () => (await fixedHeaderTop()) === BAR_HEIGHT + STATUS_HEIGHT,
   );
   console.log('narrow window: fixed header moved down below the bar and the status line');
-  await gloss(['open', `${base}/?csp`]);
+  assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
   await until('the ?csp page', () => cspPage.url().endsWith('/?csp'));
   await cspPage.setViewportSize({ width: 1280, height: 800 });
 
