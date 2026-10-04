@@ -58,6 +58,11 @@ jobs:
           echo "$out"
           test "$code" = 1
           test "$(jq -r .running <<<"$out")" = false
+      # --ignore-scripts skips Playwright's own postinstall, so this is the
+      # only check that install-chromium --with-deps, as the caveats tell
+      # Linux users to run it, actually installs Chromium and its libraries.
+      - name: gloss install-chromium --with-deps works from the packed install
+        run: $RUNNER_TEMP/g/bin/gloss install-chromium --with-deps
 
   # The formula template, linted and audited from a tap, as the published
   # copy is: Homebrew's rules for formulae go by where the file sits.
