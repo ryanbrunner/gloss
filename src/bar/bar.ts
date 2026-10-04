@@ -27,17 +27,18 @@ import { fitViewportUnits } from './viewport.js';
  * reach into the shadow root, and its `button.click()` must not approve
  * anything, or send the window wherever it likes.
  *
- * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
- * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
- * `<body>` so a framework that owns the body never sees it. Its styles are
- * constructed stylesheets, which a strict CSP's `style-src` does not block the
- * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The marks
- * it leaves on the page's own styles are PAGE_OFFSET, on a phone
- * STATUS_OFFSET while the status shows, its height added to the page's scroll
- * padding, the offsets that keep the page's fixed and sticky elements out
- * from under it, the `vh` lengths fitViewportUnits shortens to match, and in
- * Select mode a crosshair cursor.
+ * It runs inside someone else's page, so it keeps to itself. In a session its
+ * script runs in an isolated world, which shares the page's DOM but none of
+ * its globals. Its DOM is in a shadow root on one `<gloss-bar>` element, hung
+ * off `<html>` rather than `<body>` so a framework that owns the body never
+ * sees it. Its styles are constructed stylesheets, which a strict CSP's
+ * `style-src` does not block the way it would an inline `<style>`, and its
+ * DOM is built node by node rather than through `innerHTML`, for pages that
+ * enforce Trusted Types. The marks it leaves on the page's own styles are
+ * PAGE_OFFSET, on a phone STATUS_OFFSET while the status shows, its height
+ * added to the page's scroll padding, the offsets that keep the page's fixed
+ * and sticky elements out from under it, the `vh` lengths fitViewportUnits
+ * shortens to match, and in Select mode a crosshair cursor.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -67,9 +68,9 @@ const ARROW = ['M11.5 11.5 4.5 4.5', 'M4.5 10V4.5H10'];
 const CROSSHAIR = ['M12 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M8 1v3', 'M8 12v3', 'M1 8h3', 'M12 8h3'];
 
 /**
- * Mounts the bar once per page. The session registers it as an init script,
- * which runs in every frame and again on every navigation; only the top frame
- * gets a bar.
+ * Mounts the bar once per page. The session has its script run on every new
+ * document, which means in every frame and again on every navigation; only
+ * the top frame gets a bar.
  */
 export function mountBar(transport: Transport, options: BarOptions = {}): void {
   if (window.top !== window) return;
