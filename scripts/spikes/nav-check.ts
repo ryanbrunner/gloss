@@ -2,7 +2,11 @@
  * Checks that a page under Gloss behaves as it would without it: links, a
  * form post, client-side navigation (pushState plus a body swap), a popup,
  * a move to another site and a page served with `X-Frame-Options: DENY`,
- * with the bar present on every step.
+ * with the bar present on every step. Also checks what the bar's top-layer
+ * popover can and cannot survive: a page popover opened after it, and a
+ * page's modal `<dialog>`, which covers the bar regardless of show order —
+ * a known limit, documented here so a change in that Chromium behaviour
+ * would fail this instead of going unnoticed.
  * Also races two `gloss open` calls and checks only one session starts, and
  * that `gloss close` takes the session's server down with it.
  *
@@ -207,6 +211,63 @@ try {
   await until('count 2 in the first tab', async () => (await p.locator('gloss-bar .toggle').innerText()).includes('(2)'));
   await popup.close();
   console.log('popup: a window.open tab got the bar, and its comment showed in the first tab');
+
+  // The bar is itself a manual popover (bar.ts's raise()), which beats
+  // ordinary stacking contexts outright. elementFromPoint at a corner of the
+  // bar is how to ask what the top layer currently paints there.
+  const barHit = () => p.evaluate(() => document.elementFromPoint(5, 5)?.tagName);
+  assert.equal(await barHit(), 'GLOSS-BAR', 'the bar covers its own corner to start');
+
+  // A popover the page opens afterwards would otherwise land above the bar
+  // in the top layer's stack; the bar's document-level toggle listener
+  // (stayOnTop()) re-shows itself on top of it.
+  await p.evaluate(() => {
+    const el = document.createElement('div');
+    el.id = 'page-popover';
+    el.setAttribute('popover', 'manual');
+    el.style.cssText = 'position:fixed;inset:0;background:red';
+    document.body.append(el);
+    el.showPopover();
+  });
+  await until('the bar back above the page popover', async () => (await barHit()) === 'GLOSS-BAR');
+  console.log('page popover: opened after the bar, the bar re-raised itself on top');
+
+  // A page's modal <dialog> is not beaten by any of this: Chromium keeps a
+  // modal dialog topmost over every popover regardless of which showed
+  // last. Making the bar itself a modal dialog to compete would make the
+  // rest of the page inert, which Interact mode cannot allow, so this is a
+  // known limit (see the class comment on Bar in bar.ts) rather than a bug
+  // to chase — checked here so a change in that Chromium behaviour would
+  // show up as a failing assertion.
+  await p.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'page-dialog';
+    dialog.style.cssText = 'position:fixed;inset:0;margin:0;background:blue';
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await until('the dialog covering the bar', async () => (await barHit()) === 'DIALOG');
+  console.log('modal dialog: shown after the popover, it still covers the bar — a known limit');
+
+  // Order does not matter either way: with the dialog already open, a fresh
+  // popover shown after it would normally go to the top of the stack (as
+  // page-popover just did over the bar), but the dialog keeps the top spot.
+  await p.evaluate(() => document.querySelector('#page-popover')!.remove());
+  await p.evaluate(() => {
+    const el = document.createElement('div');
+    el.id = 'later-popover';
+    el.setAttribute('popover', 'manual');
+    el.style.cssText = 'position:fixed;inset:0;background:green';
+    document.body.append(el);
+    el.showPopover();
+  });
+  assert.equal(await barHit(), 'DIALOG', 'the dialog, shown before this popover, still wins');
+  await p.evaluate(() => {
+    document.querySelector('dialog')!.remove();
+    document.querySelector('#later-popover')!.remove();
+  });
+  await until('the bar back once the dialog and popover are gone', async () => (await barHit()) === 'GLOSS-BAR');
+  console.log('modal dialog: beats a popover shown before it as well as one shown after — show order does not matter');
 
   // Another site, which Chromium gives another renderer process: the bar
   // and its binding go with the page, there and back.
