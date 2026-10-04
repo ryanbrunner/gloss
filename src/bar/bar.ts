@@ -1,5 +1,5 @@
 import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
-import { h, icon, sendOnEnter, sheet } from './dom.js';
+import { createValueGuard, h, icon, sendOnEnter, sheet } from './dom.js';
 import { pagePath, samePage, squeeze } from './geometry.js';
 import { logo } from './logo.js';
 import { Overlay, type Marker } from './overlay.js';
@@ -29,6 +29,12 @@ import { fitViewportUnits } from './viewport.js';
  * only on a click the browser made (`isTrusted`). The page under review can
  * reach into the shadow root, and its `button.click()` must not approve
  * anything, or send the window wherever it likes.
+ * `document.execCommand` edits whatever has focus, including the comment
+ * box, so the reviewer's own trusted Enter would send whatever it put
+ * there; `dom.ts`'s `createValueGuard` keeps the box's `value` to what the
+ * reviewer actually typed, pasted or deleted instead. It cannot stop a page
+ * that writes `value` straight through the open shadow root; that wants the
+ * root closed.
  *
  * It runs inside someone else's page, so it keeps to itself. In a session its
  * script runs in an isolated world, which shares the page's DOM but none of
@@ -93,16 +99,18 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
   const showStatusPadding = addScrollPadding();
   fitViewportUnits();
-  // Listening before the page's scripts do, so a click in Select mode is the bar's first.
+  // Listening before the page's scripts do, so a click in Select mode is the
+  // bar's first, and so is an `input` on the comment box.
   let bar: Bar | undefined;
   const picker = createPicker((e) => bar !== undefined && e.composedPath().includes(bar.host));
+  const guardValue = createValueGuard();
   const selectionWatcher = createSelectionWatcher((el) => bar !== undefined && bar.host.contains(el));
 
   // MOUNTED, set above, is the only guard against mounting twice: a page
   // cannot dodge it the way it could a `document.querySelector(HOST_TAG)`
   // check, by planting a `<gloss-bar>` of its own for that to find.
   const start = () => {
-    bar = new Bar(transport, options, showStatusPadding, picker, selectionWatcher);
+    bar = new Bar(transport, options, showStatusPadding, picker, guardValue, selectionWatcher);
     bar.attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
@@ -182,6 +190,8 @@ class Bar {
     private readonly showStatusPadding: (status: boolean) => void,
     /** Select mode's listeners on the page, there since before the page's own. */
     private readonly picker: Picker,
+    /** Keeps a textarea's `value` off-limits to `document.execCommand`. */
+    private readonly guardValue: (box: HTMLTextAreaElement) => void,
     /** Watches for a text selection to offer "Comment on selection" on, in Interact mode. */
     private readonly selectionWatcher: SelectionWatcher,
   ) {
@@ -209,6 +219,8 @@ class Bar {
     );
     this.root.append(this.bar, this.list, this.overlay.layer);
 
+    this.guardValue(this.input);
+    this.guardValue(this.overlay.input);
     this.add.addEventListener('click', () => this.addComment());
     sendOnEnter(this.input, () => this.addComment());
     this.toggle.addEventListener('click', () => this.setListOpen(!this.listOpen));
@@ -234,8 +246,14 @@ class Bar {
       if ((e as KeyboardEvent).key === 'Escape' && !this.picker.active) this.escape();
     });
     // Typing in the bar is not typing in the page: a page's own shortcuts
-    // ("/" to search, "j" for next) must not fire from the comment box.
-    for (const type of ['keydown', 'keyup', 'keypress']) this.root.addEventListener(type, (e) => e.stopPropagation());
+    // ("/" to search, "j" for next) must not fire from the comment box. A
+    // page bubble listener on `beforeinput` or `input` is kept out the same
+    // way, so it cannot run between the comment box's own `beforeinput`,
+    // where guardValue marks a trusted edit as its own, and the `input`
+    // that follows it.
+    for (const type of ['keydown', 'keyup', 'keypress', 'beforeinput', 'input']) {
+      this.root.addEventListener(type, (e) => e.stopPropagation());
+    }
     // A click anywhere else closes the list, as a menu would.
     document.addEventListener('pointerdown', (e) => {
       if (this.listOpen && !e.composedPath().includes(this.host)) this.setListOpen(false);

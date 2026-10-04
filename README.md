@@ -206,6 +206,23 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   different element, and a sent pin's dimmed marker then sits on that one.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
+- `document.execCommand` edits whatever has focus, including the comment box,
+  and in Chromium fires only a trusted `input` event with no `beforeinput`
+  first, unlike a real edit. `createValueGuard` in `src/bar/dom.ts` marks a
+  trusted edit as the box's own on its `beforeinput`, after every page
+  capture listener further up the tree has had its turn, and bar.ts stops
+  `beforeinput` and `input` from bubbling past the shadow root, so a page
+  bubble listener cannot run in the gap before the matching `input` either.
+  What checks that `input` is on `window`, in the capture phase and
+  registered before the page's own scripts run, so it is still the first to
+  see one fired from inside a page's own capture listener's `execCommand`,
+  nested in the real edit's dispatch. It puts the box's `value` back
+  whenever an `input` arrives on a box not expecting one, so the page cannot
+  rewrite the comment the reviewer is about to send. A page task already
+  queued when a `beforeinput` gets no `input` at all - backspace in an empty
+  box - could still land in the small gap before the fallback clears that
+  box's flag. It cannot stop a page that writes `value` straight through
+  the shadow root, which is still open; that wants the root closed.
 
 ## Why Playwright, not a proxy or an iframe
 
