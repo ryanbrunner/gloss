@@ -25,11 +25,24 @@ import type { Box, CommentStore, Pin, RoundState } from './store.js';
  */
 
 const INSTALL_HINT = 'Run `gloss install-chromium`.';
+const WITH_DEPS_HINT = 'Run `gloss install-chromium --with-deps`.';
 
 /** Why Chromium cannot start, before trying: said by `gloss open` rather than found in a log. */
 export function chromiumMissing(): string | null {
   const path = chromium.executablePath();
   return existsSync(path) ? null : `Chromium is not installed (there is nothing at ${path}). ${INSTALL_HINT}`;
+}
+
+/**
+ * Whether a launch failure is Playwright's own check for missing system
+ * libraries: the executable is there, but `launch()` ran `ldd` over it
+ * before ever spawning it and found a Linux box missing what
+ * `--with-deps` installs. That failure carries this exact line (see
+ * `validateDependenciesLinux` in Playwright, which throws it ahead of any
+ * "cannot open shared object file" error the process itself would raise).
+ */
+export function missingSystemLibraries(cause: unknown): boolean {
+  return cause instanceof Error && cause.message.includes('missing dependencies to run browsers');
 }
 
 export class BrowserUnavailable extends Error {}
@@ -168,7 +181,8 @@ export async function openBrowser(url: string, store: CommentStore, options: Bro
       args: options.cdpPort ? [`--remote-debugging-port=${options.cdpPort}`] : [],
     });
   } catch (cause) {
-    throw new BrowserUnavailable(`could not start Chromium (${firstLine(cause)}). ${INSTALL_HINT}`);
+    const hint = missingSystemLibraries(cause) ? WITH_DEPS_HINT : INSTALL_HINT;
+    throw new BrowserUnavailable(`could not start Chromium (${firstLine(cause)}). ${hint}`);
   }
 
   // A headed window without `viewport: null` is pinned to 1280×720 however
