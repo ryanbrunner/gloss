@@ -27,18 +27,27 @@ export function linuxDepsHint(platform: string): string | null {
 }
 
 /**
- * `gloss install-chromium`: download the Chromium this Gloss's Playwright
- * drives. `npx playwright install` would fetch whichever Playwright is newest,
- * and with it a browser revision this one does not look for.
+ * `gloss install-chromium [--with-deps]`: download the Chromium this Gloss's
+ * Playwright drives. `npx playwright install` would fetch whichever
+ * Playwright is newest, and with it a browser revision this one does not
+ * look for.
+ *
+ * `--with-deps` also installs the system libraries Chromium needs on Linux,
+ * which Playwright does with `apt-get` under sudo. Plain `install-chromium`
+ * leaves that to `linuxDepsHint` instead of running it unasked; typing
+ * `--with-deps` is that ask.
  */
 export async function installChromium(args: string[]): Promise<void> {
-  parseOrUsage(() => parseArgs({ args, options: {} }));
-  const child = spawn(process.execPath, [playwrightCli(), 'install', 'chromium'], { stdio: 'inherit' });
+  const { values } = parseOrUsage(() => parseArgs({ args, options: { 'with-deps': { type: 'boolean' } } }));
+  const playwrightArgs = values['with-deps'] ? ['install', '--with-deps', 'chromium'] : ['install', 'chromium'];
+  const child = spawn(process.execPath, [playwrightCli(), ...playwrightArgs], { stdio: 'inherit' });
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', resolve);
   });
   if (code !== 0) throw new CliError(`installing Chromium failed (playwright exited with ${code ?? 'a signal'})`);
-  const hint = linuxDepsHint(process.platform);
-  if (hint) note(hint);
+  if (!values['with-deps']) {
+    const hint = linuxDepsHint(process.platform);
+    if (hint) note(hint);
+  }
 }
