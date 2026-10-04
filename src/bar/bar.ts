@@ -492,7 +492,7 @@ class Bar {
    * bar remounts and the marker comes back on its element.
    */
   private pageLink(url: string): HTMLButtonElement {
-    const link = h('button', { class: 'page', type: 'button' }, `on ${pagePath(url) ?? url}`);
+    const link = h('button', { class: 'page', type: 'button' }, `on ${pagePath(url, location.origin) ?? url}`);
     link.addEventListener('click', (e) => {
       if (e.isTrusted && /^https?:/.test(url)) location.href = url;
     });

@@ -37,13 +37,19 @@ describe('samePage', () => {
 });
 
 describe('pagePath', () => {
+  const origin = 'http://127.0.0.1:4400';
+
   test('keeps the path and query, drops the origin and hash', () => {
-    assert.equal(pagePath('http://127.0.0.1:4400/cart?gloss#summary'), '/cart?gloss');
-    assert.equal(pagePath('http://127.0.0.1:4400/'), '/');
+    assert.equal(pagePath('http://127.0.0.1:4400/cart?gloss#summary', origin), '/cart?gloss');
+    assert.equal(pagePath('http://127.0.0.1:4400/', origin), '/');
+  });
+
+  test('keeps the host for a URL on another origin, which the path alone would misname', () => {
+    assert.equal(pagePath('http://localhost:4400/cart', origin), 'localhost:4400/cart');
   });
 
   test('is null for a URL that will not parse', () => {
-    assert.equal(pagePath('not a url'), null);
+    assert.equal(pagePath('not a url', origin), null);
   });
 });
 

@@ -183,10 +183,11 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
 - **The page under review shares a JavaScript realm with the bar.** It is the
-  code the agent is editing, so it must not be able to approve. Submit and
-  Approve act only on trusted clicks. The session refuses changes from frames
-  and from pages that are not http or https. Before any page script runs, the
-  init script takes the binding off `window`, puts a sealed stand-in over
+  code the agent is editing, so it must not be able to approve. Submit,
+  Approve and a comment's page link act only on trusted clicks. The session
+  refuses changes from frames and from pages that are not http or https.
+  Before any page script runs, the init script takes the binding off
+  `window`, puts a sealed stand-in over
   Playwright's binding controller, and hides the raw DevTools binding. It
   also stops sending if the page has patched `JSON.stringify`, or put a
   `toJSON` or index setter on the prototypes. `scripts/spikes/loop-check.ts`
