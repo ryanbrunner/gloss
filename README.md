@@ -130,7 +130,8 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
 `null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
-`tag`, `text`, `box` and the `viewport`, and the path of its `screenshot`.
+`tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, and
+`quote`, when it was made on a selection.
 
 ## The bar
 
