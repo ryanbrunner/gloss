@@ -145,9 +145,9 @@ describe('visibleClip', () => {
 });
 
 describe('missingSystemLibraries', () => {
-  test('matches the shared-library error a Linux box without --with-deps throws', () => {
+  test('matches the dependency check Playwright runs before spawning Chromium', () => {
     const cause = new Error(
-      '/home/user/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: error while loading shared libraries: libnspr4.so: cannot open shared object file: No such file or directory',
+      '\n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers.    ║\n║ Please install them with the following command:         ║\n║                                                          ║\n║     sudo npx playwright install-deps                    ║\n╚══════════════════════════════════════════════════════╝',
     );
     assert.ok(missingSystemLibraries(cause));
   });

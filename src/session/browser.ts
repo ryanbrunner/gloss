@@ -34,13 +34,15 @@ export function chromiumMissing(): string | null {
 }
 
 /**
- * Whether a launch failure is Playwright's own shared-library error: the
- * executable is there but a Linux box is missing the system libraries
- * `--with-deps` installs. Playwright's CLI matches the same text to tell the
- * two cases apart (see its `cannot open shared object file` check).
+ * Whether a launch failure is Playwright's own check for missing system
+ * libraries: the executable is there, but `launch()` ran `ldd` over it
+ * before ever spawning it and found a Linux box missing what
+ * `--with-deps` installs. That failure carries this exact line (see
+ * `validateDependenciesLinux` in Playwright, which throws it ahead of any
+ * "cannot open shared object file" error the process itself would raise).
  */
 export function missingSystemLibraries(cause: unknown): boolean {
-  return cause instanceof Error && cause.message.includes('cannot open shared object file: No such file or directory');
+  return cause instanceof Error && cause.message.includes('missing dependencies to run browsers');
 }
 
 export class BrowserUnavailable extends Error {}
