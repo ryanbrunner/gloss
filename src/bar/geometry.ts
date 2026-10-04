@@ -29,6 +29,19 @@ export function squeeze(text: string, max = 80): string {
 }
 
 /**
+ * A page's path and query, to show as `on /path` without the origin a
+ * reviewer already on it knows. Null for a URL that will not parse.
+ */
+export function pagePath(url: string): string | null {
+  try {
+    const { pathname, search } = new URL(url);
+    return `${pathname}${search}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether a pin made at one URL belongs to the page at another. An anchor jump
  * changes only the hash, and the elements are the same ones.
  */
