@@ -7,20 +7,18 @@ import { fileURLToPath } from 'node:url';
  * rather than ahead of time, so Gloss keeps Reeve's habit of no build step.
  * esbuild is the one tsx already runs on.
  *
- * `session` mounts itself against the Gloss session's binding, for
- * `addInitScript`. `demo` mounts nothing on its own: it exposes
- * `GlossDemo.mount(...)` for the demo page to call with a round of its own
- * (a `DemoRound`, from ./transport.ts).
+ * `session` mounts itself against the Gloss session's binding, in the
+ * isolated world ../session/browser.ts runs it in. `demo` mounts nothing on
+ * its own: it exposes `GlossDemo.mount(...)` for the demo page to call with a
+ * round of its own (a `DemoRound`, from ./transport.ts).
  */
 export type BarMode = 'session' | 'demo';
 
 const ENTRIES: Record<BarMode, string> = {
-  // Sealed in every frame, before the top-frame check in mountBar: a frame's
-  // own copy of the binding is as much a way in as the page's.
   session: `
     import { mountBar } from './bar.js';
-    import { bindingTransport, sealBinding } from './transport.js';
-    mountBar(bindingTransport(sealBinding()));
+    import { bindingTransport } from './transport.js';
+    mountBar(bindingTransport());
   `,
   demo: `
     import { mountBar } from './bar.js';

@@ -12,8 +12,9 @@ import { squeeze } from './geometry.js';
  * With no id to start from, it takes as few steps as match this element alone.
  */
 
-export function pinDraftFor(el: Element): PinDraft {
+export function pinDraftFor(el: Element, quote?: string): PinDraft {
   const rect = el.getBoundingClientRect();
+  const trimmed = quote?.trim();
   return {
     url: location.href,
     selector: selectorFor(el),
@@ -23,6 +24,9 @@ export function pinDraftFor(el: Element): PinDraft {
     // the page's 44px margin under the bar included.
     box: { x: rect.left + scrollX, y: rect.top + scrollY, width: rect.width, height: rect.height },
     viewport: { width: innerWidth, height: innerHeight },
+    // Cut to the zod schema's limit (browser.ts's `pinDraft.quote`), so a long
+    // selection does not fail the whole comment with an error nobody sees.
+    ...(trimmed && { quote: trimmed.slice(0, 4_000) }),
   };
 }
 

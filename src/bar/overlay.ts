@@ -1,13 +1,15 @@
 import type { Pin, PinDraft } from '../session/store.js';
 import { h, sendOnEnter } from './dom.js';
-import { placePopover, samePage, type Rect } from './geometry.js';
+import { placePopover, samePage, squeeze, type Rect } from './geometry.js';
+import type { Selected } from './selection.js';
 import { BAR_HEIGHT } from './styles.js';
 import { resolvePin } from './target.js';
 
 /**
  * What the bar draws over the page itself: the outline on the element under
- * the pointer in Select mode, the comment box beside the one picked, and a
- * numbered marker on each pinned element.
+ * the pointer in Select mode, the comment box beside the one picked, a
+ * numbered marker on each pinned element, and, in Interact mode, the button
+ * that offers to comment on whatever text is selected.
  *
  * One `.layer` in the bar's shadow root holds it all, as `position: fixed`
  * children the way the comment list already is; the host is fixed with no
@@ -33,6 +35,7 @@ export class Overlay {
   private readonly hoverBox = highlight();
   private readonly pickedBox = highlight('picked');
   private readonly markerLayer = h('div');
+  private readonly selectionButton = h('button', { class: 'selection-comment', type: 'button', hidden: '' }, 'Comment on selection');
   private readonly heading = h('div', { class: 'composer-heading' });
   readonly input = h('textarea', { rows: '3', 'aria-label': 'Comment on this element' });
   private readonly cancel = h('button', { type: 'button' }, 'Cancel');
@@ -54,17 +57,23 @@ export class Overlay {
   private markers: Array<[HTMLElement, Marker]> = [];
   /** Kept, since the markers are made again on every render. */
   private readonly onMarker: (marker: Marker) => void;
+  /** What the selection button, while shown, would open the composer on. */
+  private selected: Selected | null = null;
   private queued = false;
 
-  constructor(actions: { add: () => void; cancel: () => void; edit: (marker: Marker) => void }) {
+  constructor(actions: { add: () => void; cancel: () => void; edit: (marker: Marker) => void; selectComment: (selected: Selected) => void }) {
     this.onMarker = actions.edit;
-    this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer);
+    this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer, this.selectionButton);
     this.send.addEventListener('click', actions.add);
     this.cancel.addEventListener('click', actions.cancel);
     sendOnEnter(this.input, actions.add);
+    // Without this, the mousedown before the click collapses the selection
+    // the click handler needs.
+    this.selectionButton.addEventListener('mousedown', (e) => e.preventDefault());
+    this.selectionButton.addEventListener('click', () => this.selected && actions.selectComment(this.selected));
 
     // Nothing to follow while nothing is drawn.
-    const follow = () => (this.hovered || this.picked || this.markers.length) && this.queue();
+    const follow = () => (this.hovered || this.picked || this.markers.length || this.selected) && this.queue();
     document.addEventListener('scroll', follow, { capture: true, passive: true });
     window.addEventListener('resize', follow);
     window.addEventListener('load', follow);
@@ -86,7 +95,11 @@ export class Overlay {
   open(el: Element, draft: PinDraft): void {
     this.picked = el;
     this.pickedRect = null;
-    this.heading.textContent = draft.text ? `Comment on ${draft.tag} · ${draft.text}` : `Comment on ${draft.tag}`;
+    this.heading.textContent = draft.quote
+      ? `Comment on "${squeeze(draft.quote)}"`
+      : draft.text
+        ? `Comment on ${draft.tag} · ${draft.text}`
+        : `Comment on ${draft.tag}`;
     this.heading.title = this.heading.textContent;
     this.input.value = '';
     this.input.readOnly = false;
@@ -123,6 +136,12 @@ export class Overlay {
   setCapturing(capturing: boolean): void {
     this.layer.classList.toggle('capturing', capturing);
     if (!capturing && this.composing) this.input.focus({ preventScroll: true });
+  }
+
+  /** What is selected on the page, worth a "Comment on selection" button beside it, or null for nothing to show. */
+  setSelected(selected: Selected | null): void {
+    this.selected = selected;
+    this.queue();
   }
 
   setMarkers(markers: Marker[]): void {
@@ -186,6 +205,16 @@ export class Overlay {
       // On the element's top right corner, kept inside the window.
       el.style.left = `${Math.min(Math.max(rect.left + rect.width, 12), innerWidth - 12)}px`;
       el.style.top = `${rect.top}px`;
+    }
+    // Read from the range, not the element, so the button follows the words
+    // themselves rather than jumping to wherever their ancestor's box is.
+    const selectionRect = this.selected?.range.getBoundingClientRect();
+    this.selectionButton.hidden = !selectionRect || (!selectionRect.width && !selectionRect.height);
+    if (!this.selectionButton.hidden && selectionRect) {
+      const size = { width: this.selectionButton.offsetWidth, height: this.selectionButton.offsetHeight };
+      const at = placePopover(selectionRect, size, { width: innerWidth, height: innerHeight });
+      this.selectionButton.style.left = `${at.left}px`;
+      this.selectionButton.style.top = `${at.top}px`;
     }
   }
 }

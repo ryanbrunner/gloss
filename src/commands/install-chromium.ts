@@ -14,15 +14,24 @@ export function playwrightCli(): string {
 }
 
 /**
+ * The playwright CLI argv for `gloss install-chromium`, given whether
+ * `--with-deps` was passed. Pulled out so the mapping can be tested without
+ * spawning playwright.
+ */
+export function installChromiumArgs(withDeps: boolean): string[] {
+  return withDeps ? ['install', '--with-deps', 'chromium'] : ['install', 'chromium'];
+}
+
+/**
  * Said after a successful install, on Linux alone: this only fetches the
  * browser, and Chromium there also needs system libraries the download does
  * not include. `--with-deps` gets them too (sudo, in a runner that already
  * grants it, or a person typing it as an explicit ask); asking for sudo
  * unprompted here would be a surprise, so this names the flag instead of
- * running it.
+ * running it. Quiet once `--with-deps` has already installed them.
  */
-export function linuxDepsHint(platform: string): string | null {
-  if (platform !== 'linux') return null;
+export function linuxDepsHint(platform: string, withDeps = false): string | null {
+  if (platform !== 'linux' || withDeps) return null;
   return 'Chromium also needs system libraries on Linux. If `gloss open` cannot launch it, run:\n  gloss install-chromium --with-deps';
 }
 
@@ -39,15 +48,13 @@ export function linuxDepsHint(platform: string): string | null {
  */
 export async function installChromium(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() => parseArgs({ args, options: { 'with-deps': { type: 'boolean' } } }));
-  const playwrightArgs = values['with-deps'] ? ['install', '--with-deps', 'chromium'] : ['install', 'chromium'];
-  const child = spawn(process.execPath, [playwrightCli(), ...playwrightArgs], { stdio: 'inherit' });
+  const withDeps = values['with-deps'] ?? false;
+  const child = spawn(process.execPath, [playwrightCli(), ...installChromiumArgs(withDeps)], { stdio: 'inherit' });
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', resolve);
   });
   if (code !== 0) throw new CliError(`installing Chromium failed (playwright exited with ${code ?? 'a signal'})`);
-  if (!values['with-deps']) {
-    const hint = linuxDepsHint(process.platform);
-    if (hint) note(hint);
-  }
+  const hint = linuxDepsHint(process.platform, withDeps);
+  if (hint) note(hint);
 }
