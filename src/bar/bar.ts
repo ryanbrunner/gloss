@@ -1,5 +1,6 @@
 import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
 import { h, icon, sendOnEnter, sheet } from './dom.js';
+import { pagePath, samePage } from './geometry.js';
 import { logo } from './logo.js';
 import { Overlay, type Marker } from './overlay.js';
 import { keepPinnedClear } from './pinned.js';
@@ -21,9 +22,10 @@ import { fitViewportUnits } from './viewport.js';
  * A comment made that way is pinned: it keeps where the element was, the
  * session photographs it, and a numbered marker stays on the element.
  *
- * Submit, Approve and the approve confirmation act only on a click the
- * browser made (`isTrusted`). The page under review can reach into the
- * shadow root, and its `button.click()` must not approve anything.
+ * Submit, Approve, the approve confirmation and a comment's page link act
+ * only on a click the browser made (`isTrusted`). The page under review can
+ * reach into the shadow root, and its `button.click()` must not approve
+ * anything, or send the window wherever it likes.
  *
  * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
  * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
@@ -481,10 +483,25 @@ class Bar {
     const pinned = pin ? [h('span', { class: 'num' }, String(numbers.get(comment.id)))] : [];
     const body = h('span', { class: 'body' }, comment.body);
     if (pin) body.append(h('span', { class: 'meta' }, pin.text ? `${pin.tag} · ${pin.text}` : pin.tag));
+    const url = pin?.url ?? comment.page;
+    if (url && !samePage(url, location.href)) body.append(this.pageLink(url));
     if (comment.sentIn !== null) return h('li', { class: 'item sent' }, ...pinned, body);
     const remove = h('button', { class: 'delete', type: 'button', 'aria-label': 'Delete comment', title: 'Delete' }, '×');
     remove.addEventListener('click', () => this.removeComment(comment.id));
     return h('li', { class: 'item' }, ...pinned, body, remove);
+  }
+
+  /**
+   * A comment left on another page: naming it, so the reviewer knows where to
+   * look for its marker. A trusted click sends the window there, where the
+   * bar remounts and the marker comes back on its element.
+   */
+  private pageLink(url: string): HTMLButtonElement {
+    const link = h('button', { class: 'page', type: 'button' }, `on ${pagePath(url, location.origin) ?? url}`);
+    link.addEventListener('click', (e) => {
+      if (e.isTrusted && /^https?:/.test(url)) location.href = url;
+    });
+    return link;
   }
 
   /** The list hangs under its toggle, kept inside the viewport on a narrow screen. */

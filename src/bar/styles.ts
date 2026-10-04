@@ -238,6 +238,25 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .sent .num { background: ${MUTED}; opacity: 0.7; }
 .meta { display: block; margin-top: 3px; color: ${MUTED}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Where a comment was left, for one not on this page. Reset off the global button rule, to read as a link rather than a button. */
+.page {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  height: auto;
+  color: ${SKY};
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page:hover { text-decoration: underline; }
 .summary { padding: 10px 13px; border-bottom: 1px solid ${EDGE}; background: rgba(56, 189, 248, 0.06); white-space: pre-wrap; }
 .summary .label { display: block; margin-bottom: 3px; color: ${SKY}; font-size: 11px; font-weight: 600; }
 
