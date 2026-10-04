@@ -246,11 +246,15 @@ class Bar {
     this.narrow.addEventListener('change', placeholder);
     placeholder();
 
-    // The page can still close the popover directly (hidePopover(), or
-    // switching it off), which fires this on the host; raise() undoes it.
+    // The page can still close the popover directly with hidePopover(),
+    // which fires this on the host; raise() undoes it.
     this.host.addEventListener('toggle', (e) => {
       if ((e as ToggleEvent).newState === 'closed') this.raise();
     });
+    // Removing the `popover` attribute or switching it to `auto` also hides
+    // it, per spec, but without firing toggle; only the attribute itself
+    // changing says so.
+    new MutationObserver(() => this.raise()).observe(this.host, { attributeFilter: ['popover'] });
     // A popover the page opens after the bar mounted would otherwise land
     // above the host: the top layer orders popovers by when they were
     // shown. `toggle` does not bubble, but the capture phase still reaches
