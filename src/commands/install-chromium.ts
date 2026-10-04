@@ -30,7 +30,7 @@ export function installChromiumArgs(withDeps: boolean): string[] {
 export async function installChromium(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() => parseArgs({ args, options: { 'with-deps': { type: 'boolean' } } }));
   // Playwright's own flag: apt, via sudo, for the libraries Chromium needs to
-  // launch. Debian/Ubuntu only; a no-op elsewhere.
+  // launch. A no-op on macOS, where Homebrew installs this formula.
   const child = spawn(process.execPath, [playwrightCli(), ...installChromiumArgs(values['with-deps'] ?? false)], {
     stdio: 'inherit',
   });
