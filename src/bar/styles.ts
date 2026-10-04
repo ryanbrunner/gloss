@@ -6,9 +6,16 @@ export const BAR_HEIGHT = 44;
  * everything in normal flow with it; scroll-padding.ts adds the bar's height
  * to the page's own scroll padding, so an anchor jump lands below both. An
  * element pinned to the viewport does not move with `html`; pinned.ts moves
- * those.
+ * those. `vh` still measures the whole window; viewport.ts takes OFFSET off
+ * the page's `vh` lengths, so it is set alongside the margin it matches.
  */
-export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important}`;
+export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;--gloss-offset:${BAR_HEIGHT}px!important}`;
+
+/**
+ * How far the page is pushed down right now, for a `calc()` in the page's own
+ * styles. Nothing, should the page throw PAGE_OFFSET out.
+ */
+export const OFFSET = 'var(--gloss-offset, 0px)';
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
@@ -21,7 +28,7 @@ export const STATUS_HEIGHT = 24;
  * rather than covering it. The matching scroll padding is scroll-padding.ts's,
  * which has to add it to whatever the page sets rather than replace it.
  */
-export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
+export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important;--gloss-offset:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
 
 /**
  * Reeve's dark palette, from reeve/packages/web/src/index.css, so the bar

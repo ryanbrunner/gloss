@@ -34,6 +34,10 @@ p { margin: 0; }
 .fixed-header .site-header { position: fixed; left: 0; right: 0; }
 .fixed-header .shop { margin-top: 51px; }
 
+/* `?fullheight`: an app shell exactly as tall as the viewport, the shop scrolling inside it. */
+.full-height { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.full-height .shop { flex: 1; min-height: 0; overflow: auto; }
+
 .shop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
