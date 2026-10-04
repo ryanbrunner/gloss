@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createDevServer } from '../dev.js';
+import { BAR_HEIGHT, STATUS_HEIGHT } from '../../src/bar/styles.js';
 import { pidAlive, readState, sessionRef } from '../../src/session/state.js';
 import type { RoundState } from '../../src/session/store.js';
 
@@ -266,6 +267,39 @@ try {
   await until('the fixed header below the bar', async () => (await fixedHeaderTop()) === 44);
   console.log('fixed header: moved down below the bar');
 
+  // A layout sized to 100vh fits below the bar rather than scrolling by its
+  // height, and so does a fixed panel 100vh tall, a stylesheet added later.
+  assert.equal((await gloss(['open', `${base}/?fullheight`])).code, 0);
+  await until('the ?fullheight page', () => pages[0]!.url().endsWith('/?fullheight'));
+  await pages[0]!.locator('gloss-bar .bar').waitFor();
+  const fullHeight = () =>
+    pages[0]!.evaluate(() => {
+      const body = document.body.getBoundingClientRect();
+      const panel = document.querySelector('.gloss-check-panel')?.getBoundingClientRect();
+      return {
+        scrolls: document.scrollingElement!.scrollHeight - innerHeight,
+        body: [body.top, body.bottom - innerHeight],
+        panel: panel && [panel.top, panel.bottom - innerHeight],
+      };
+    });
+  await until('the app shell between the bar and the bottom, the page not scrolling', async () => {
+    const { body, scrolls } = await fullHeight();
+    return body[0] === 44 && body[1] === 0 && scrolls === 0;
+  });
+  await pages[0]!.evaluate(() => {
+    const style = document.createElement('style');
+    style.textContent = '.gloss-check-panel{position:fixed;top:0;right:0;width:8px;height:100vh}';
+    const panel = document.createElement('div');
+    panel.className = 'gloss-check-panel';
+    document.head.append(style);
+    document.body.append(panel);
+  });
+  await until('the fixed panel between the bar and the bottom', async () => {
+    const { panel } = await fullHeight();
+    return panel?.[0] === 44 && panel[1] === 0;
+  });
+  console.log('full height: the app shell and a fixed 100vh panel fit below the bar');
+
   // A strict CSP does not keep the bar out, or unstyled.
   assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
   const cspPage = await windowPage();
@@ -422,6 +456,21 @@ try {
   await until('the round submitted', async () => ((await (await apiState()).json()) as RoundState).phase === 'submitted');
   await cspPage.getByRole('button', { name: 'Interact', exact: true }).click();
   assert.equal(await pressed('Interact'), 'true');
+
+  // On a narrow window the status line ("Sent round 1...") takes a line of
+  // its own under the bar, and a fixed header has to clear that too.
+  await cspPage.setViewportSize({ width: 390, height: 700 });
+  assert.equal((await gloss(['open', `${base}/?fixed`])).code, 0);
+  await until('the ?fixed page', () => pages[0]!.url().endsWith('/?fixed'));
+  await until(
+    'the fixed header below the bar and the status line',
+    async () => (await fixedHeaderTop()) === BAR_HEIGHT + STATUS_HEIGHT,
+  );
+  console.log('narrow window: fixed header moved down below the bar and the status line');
+  assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
+  await until('the ?csp page', () => cspPage.url().endsWith('/?csp'));
+  await cspPage.setViewportSize({ width: 1280, height: 800 });
+
   const ready = await gloss(['ready', 'Moved shipping above the total']);
   assert.equal(ready.code, 0, ready.stderr);
   await until('the dimmed marker', () => markerOnTotal(true));

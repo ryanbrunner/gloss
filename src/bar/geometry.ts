@@ -29,6 +29,22 @@ export function squeeze(text: string, max = 80): string {
 }
 
 /**
+ * A page's path and query, to show as `on /path` without repeating `origin`,
+ * which the reviewer is already on. For another origin, the host goes back
+ * in, since the path alone would point at the wrong site. Null for a URL
+ * that will not parse.
+ */
+export function pagePath(url: string, origin: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const path = `${parsed.pathname}${parsed.search}`;
+    return parsed.origin === origin ? path : `${parsed.host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether a pin made at one URL belongs to the page at another. An anchor jump
  * changes only the hash, and the elements are the same ones.
  */

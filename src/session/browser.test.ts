@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { handleRpc, visibleClip, type RpcSource } from './browser.js';
+import { answerRpc, handleRpc, missingSystemLibraries, visibleClip, type RpcSource } from './browser.js';
 import { CommentStore, type PinDraft } from './store.js';
 
 const PAGE: RpcSource = { url: 'http://127.0.0.1:4400/', topFrame: true };
 const call = (store: CommentStore, c: unknown, from = PAGE, capture?: Parameters<typeof handleRpc>[3]) =>
-  handleRpc(store, JSON.stringify(c), from, capture);
+  handleRpc(store, c, from, capture);
 
 const draft = (values: Partial<PinDraft> = {}): PinDraft => ({
   url: 'http://127.0.0.1:4400/',
@@ -107,11 +107,54 @@ describe('handleRpc', () => {
     assert.deepEqual(store.snapshot().comments, []);
   });
 
-  test('refuses what it does not understand, including a call that is not JSON', async () => {
+  test('refuses what it does not understand', async () => {
     const store = new CommentStore();
-    await assert.rejects(handleRpc(store, { method: 'approve', discardUnsent: true }, PAGE), /did not understand/);
-    await assert.rejects(handleRpc(store, '{nope', PAGE), /did not understand/);
+    await assert.rejects(call(store, JSON.stringify({ method: 'approve', discardUnsent: true })), /did not understand/);
     await assert.rejects(call(store, { method: 'approve' }), /did not understand/);
+    await assert.rejects(call(store, { method: 'approve', discardUnsent: 'yes' }), /did not understand/);
+    assert.equal(store.snapshot().phase, 'reviewing');
+  });
+});
+
+describe('answerRpc', () => {
+  const send = (store: CommentStore, request: unknown, from = PAGE) => answerRpc(store, JSON.stringify(request), from);
+
+  test('answers a numbered call with its number and the round', async () => {
+    const store = new CommentStore();
+    const answer = await send(store, { id: 7, call: { method: 'add', body: 'The header is too tall' } });
+    assert.deepEqual(answer, { id: 7, state: store.snapshot() });
+    assert.equal(store.snapshot().comments.length, 1);
+  });
+
+  test('answers a refused call with its number and why', async () => {
+    const store = new CommentStore();
+    store.add('one');
+    const answer = await send(store, { id: 3, call: { method: 'approve', discardUnsent: false } });
+    assert.equal(answer && 'error' in answer && answer.id, 3);
+    assert.match(answer && 'error' in answer ? answer.error : '', /not sent yet/);
+    assert.deepEqual(await send(store, { id: 4, call: { method: 'nope' } }), {
+      id: 4,
+      error: 'Gloss did not understand that request',
+    });
+    assert.equal(store.snapshot().phase, 'reviewing');
+  });
+
+  test('photographs a pinned comment with the capture it is given', async () => {
+    const store = new CommentStore();
+    const answer = await answerRpc(
+      store,
+      JSON.stringify({ id: 1, call: { method: 'add', body: 'Total is wrong', pin: draft() } }),
+      PAGE,
+      async () => '/shots/pin-1.png',
+    );
+    assert.equal(answer && 'state' in answer && answer.state.comments[0]?.pin?.screenshot, '/shots/pin-1.png');
+  });
+
+  test('gives no answer to what is not JSON, or has no number to answer by', async () => {
+    const store = new CommentStore();
+    assert.equal(await answerRpc(store, '{nope', PAGE), null);
+    assert.equal(await send(store, { method: 'approve', discardUnsent: true }), null);
+    assert.equal(await send(store, { id: '1', call: { method: 'approve', discardUnsent: true } }), null);
     assert.equal(store.snapshot().phase, 'reviewing');
   });
 });
@@ -141,5 +184,20 @@ describe('visibleClip', () => {
     assert.equal(visibleClip(draft({ box: { x: 10, y: 100, width: 100, height: 50 } }), view), null);
     assert.equal(visibleClip(draft({ box: { x: 10, y: 1010, width: 100, height: 30 } }), view), null);
     assert.equal(visibleClip(draft({ box: { x: 10, y: 1200, width: 0, height: 30 } }), view), null);
+  });
+});
+
+describe('missingSystemLibraries', () => {
+  test('matches the dependency check Playwright runs before spawning Chromium', () => {
+    const cause = new Error(
+      '\n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers.    ║\n║ Please install them with the following command:         ║\n║                                                          ║\n║     sudo npx playwright install-deps                    ║\n╚══════════════════════════════════════════════════════╝',
+    );
+    assert.ok(missingSystemLibraries(cause));
+  });
+
+  test('is false for other launch failures, or a non-Error', () => {
+    assert.equal(missingSystemLibraries(new Error('spawn ENOENT')), false);
+    assert.equal(missingSystemLibraries('boom'), false);
+    assert.equal(missingSystemLibraries(undefined), false);
   });
 });

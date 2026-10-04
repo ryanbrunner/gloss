@@ -1,13 +1,16 @@
 import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
 import { createValueGuard, h, icon, sendOnEnter, sheet } from './dom.js';
+import { pagePath, samePage, squeeze } from './geometry.js';
 import { logo } from './logo.js';
 import { Overlay, type Marker } from './overlay.js';
 import { keepPinnedClear } from './pinned.js';
 import { createPicker, type Picker } from './picker.js';
 import { addScrollPadding } from './scroll-padding.js';
+import { createSelectionWatcher, type Selected, type SelectionWatcher } from './selection.js';
 import { BAR_STYLES, NARROW, PAGE_OFFSET, STATUS_OFFSET } from './styles.js';
 import { pinDraftFor, resolvePin } from './target.js';
 import type { Transport } from './transport.js';
+import { fitViewportUnits } from './viewport.js';
 
 /**
  * The Gloss bar: a strip across the top of the page under review, where the
@@ -18,11 +21,14 @@ import type { Transport } from './transport.js';
  * Its tools are Interact, where the page works as it always does, and
  * Select, where a click on the page picks an element to comment on instead.
  * A comment made that way is pinned: it keeps where the element was, the
- * session photographs it, and a numbered marker stays on the element.
+ * session photographs it, and a numbered marker stays on the element. In
+ * Interact mode, selecting text on the page offers the same pin, with the
+ * selected words kept as the comment's quote.
  *
- * Submit, Approve and the approve confirmation act only on a click the
- * browser made (`isTrusted`). The page under review can reach into the
- * shadow root, and its `button.click()` must not approve anything.
+ * Submit, Approve, the approve confirmation and a comment's page link act
+ * only on a click the browser made (`isTrusted`). The page under review can
+ * reach into the shadow root, and its `button.click()` must not approve
+ * anything, or send the window wherever it likes.
  * `document.execCommand` edits whatever has focus, including the comment
  * box, so the reviewer's own trusted Enter would send whatever it put
  * there; `dom.ts`'s `createValueGuard` keeps the box's `value` to what the
@@ -30,16 +36,18 @@ import type { Transport } from './transport.js';
  * that writes `value` straight through the open shadow root; that wants the
  * root closed.
  *
- * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
- * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
- * `<body>` so a framework that owns the body never sees it. Its styles are
- * constructed stylesheets, which a strict CSP's `style-src` does not block the
- * way it would an inline `<style>`, and its DOM is built node by node rather
- * than through `innerHTML`, for pages that enforce Trusted Types. The marks
- * it leaves on the page's own styles are PAGE_OFFSET, on a phone
- * STATUS_OFFSET while the status shows, its height added to the page's scroll
- * padding, the offsets that keep the page's fixed and sticky elements out
- * from under it, and in Select mode a crosshair cursor.
+ * It runs inside someone else's page, so it keeps to itself. In a session its
+ * script runs in an isolated world, which shares the page's DOM but none of
+ * its globals. Its DOM is in a shadow root on one `<gloss-bar>` element, hung
+ * off `<html>` rather than `<body>` so a framework that owns the body never
+ * sees it. Its styles are constructed stylesheets, which a strict CSP's
+ * `style-src` does not block the way it would an inline `<style>`, and its
+ * DOM is built node by node rather than through `innerHTML`, for pages that
+ * enforce Trusted Types. The marks it leaves on the page's own styles are
+ * PAGE_OFFSET, on a phone STATUS_OFFSET while the status shows, its height
+ * added to the page's scroll padding, the offsets that keep the page's fixed
+ * and sticky elements out from under it, the `vh` lengths fitViewportUnits
+ * shortens to match, and in Select mode a crosshair cursor.
  */
 
 const HOST_TAG = 'gloss-bar';
@@ -69,9 +77,9 @@ const ARROW = ['M11.5 11.5 4.5 4.5', 'M4.5 10V4.5H10'];
 const CROSSHAIR = ['M12 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M8 1v3', 'M8 12v3', 'M1 8h3', 'M12 8h3'];
 
 /**
- * Mounts the bar once per page. The session registers it as an init script,
- * which runs in every frame and again on every navigation; only the top frame
- * gets a bar.
+ * Mounts the bar once per page. The session has its script run on every new
+ * document, which means in every frame and again on every navigation; only
+ * the top frame gets a bar.
  */
 export function mountBar(transport: Transport, options: BarOptions = {}): void {
   if (window.top !== window) return;
@@ -83,15 +91,19 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   // does not jump when the bar arrives.
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet(PAGE_OFFSET)];
   const showStatusPadding = addScrollPadding();
+  fitViewportUnits();
   // Listening before the page's scripts do, so a click in Select mode is the
   // bar's first, and so is an `input` on the comment box.
   let bar: Bar | undefined;
   const picker = createPicker((e) => bar !== undefined && e.composedPath().includes(bar.host));
   const guardValue = createValueGuard();
+  const selectionWatcher = createSelectionWatcher((el) => bar !== undefined && bar.host.contains(el));
 
+  // MOUNTED, set above, is the only guard against mounting twice: a page
+  // cannot dodge it the way it could a `document.querySelector(HOST_TAG)`
+  // check, by planting a `<gloss-bar>` of its own for that to find.
   const start = () => {
-    if (document.querySelector(HOST_TAG)) return;
-    bar = new Bar(transport, options, showStatusPadding, picker, guardValue);
+    bar = new Bar(transport, options, showStatusPadding, picker, guardValue, selectionWatcher);
     bar.attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
@@ -124,11 +136,12 @@ class Bar {
     add: () => this.save(),
     cancel: () => this.closeComposer(),
     edit: (marker) => this.openExisting(marker),
+    selectComment: (selected) => this.pickSelection(selected),
   });
   /** The comment the box is open on to change, rather than a new one. */
   private editing: string | null = null;
-  /** The box was opened from a marker, so Select mode is not what keeps it open. */
-  private fromMarker = false;
+  /** The box was opened from a marker or a selection, so Select mode is not what keeps it open. */
+  private outsideSelect = false;
   /** On a phone the tools are one button, Select, which turns Select mode on and off. */
   private readonly narrow = window.matchMedia(NARROW);
   private readonly input = h('textarea', { rows: '1', 'aria-label': 'Add a general comment' });
@@ -171,6 +184,8 @@ class Bar {
     private readonly picker: Picker,
     /** Keeps a textarea's `value` off-limits to `document.execCommand`. */
     private readonly guardValue: (box: HTMLTextAreaElement) => void,
+    /** Watches for a text selection to offer "Comment on selection" on, in Interact mode. */
+    private readonly selectionWatcher: SelectionWatcher,
   ) {
     this.listOpen = options.listOpen ?? false;
     this.confirming = false;
@@ -218,6 +233,7 @@ class Bar {
     this.picker.onPick = (el) => this.pick(el);
     // In Select mode the picker hears Escape wherever the focus is, the bar included.
     this.picker.onEscape = () => this.escape();
+    this.selectionWatcher.onChange = (selected) => this.overlay.setSelected(selected);
     this.root.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Escape' && !this.picker.active) this.escape();
     });
@@ -294,8 +310,20 @@ class Bar {
     this.render(this.state);
     this.picked = { el, draft: pinDraftFor(el) };
     this.editing = null;
-    this.fromMarker = false;
+    this.outsideSelect = false;
     this.overlay.open(el, this.picked.draft);
+    this.syncSelectionWatcher();
+  }
+
+  /** A selection was offered to comment on: the box opens on its element, with the selected words kept as the quote. */
+  private pickSelection(selected: Selected): void {
+    this.listOpen = false;
+    this.render(this.state);
+    this.picked = { el: selected.el, draft: pinDraftFor(selected.el, selected.quote) };
+    this.editing = null;
+    this.outsideSelect = true;
+    this.overlay.open(selected.el, this.picked.draft);
+    this.syncSelectionWatcher();
   }
 
   /**
@@ -310,7 +338,7 @@ class Bar {
     const { picked } = this;
     const body = this.overlay.input.value;
     if (!picked || !body.trim()) return;
-    const pin = picked.el.isConnected ? pinDraftFor(picked.el) : picked.draft;
+    const pin = picked.el.isConnected ? pinDraftFor(picked.el, picked.draft.quote) : picked.draft;
     this.setCapturing(true);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     this.transport.add(body, pin).then(
@@ -355,7 +383,7 @@ class Bar {
     this.listOpen = false;
     this.picked = { el, draft: marker.pin };
     this.editing = marker.sent ? null : marker.id;
-    this.fromMarker = true;
+    this.outsideSelect = true;
     this.overlay.openExisting(el, marker);
     this.render(this.state);
   }
@@ -363,8 +391,9 @@ class Bar {
   private closeComposer(): void {
     this.picked = null;
     this.editing = null;
-    this.fromMarker = false;
+    this.outsideSelect = false;
     this.overlay.close();
+    this.syncSelectionWatcher();
   }
 
   private setCapturing(capturing: boolean): void {
@@ -447,12 +476,18 @@ class Bar {
     this.interact.setAttribute('aria-pressed', String(!selecting));
     this.select.setAttribute('aria-pressed', String(selecting));
     this.picker.setActive(selecting);
-    if (!selecting && this.overlay.composing && !this.fromMarker) this.closeComposer();
+    if (!selecting && this.overlay.composing && !this.outsideSelect) this.closeComposer();
+    this.syncSelectionWatcher();
 
     const numbers = pinNumbers(state.comments);
     this.overlay.setMarkers(
       state.comments.flatMap((c) => (c.pin ? [{ id: c.id, n: numbers.get(c.id)!, body: c.body, pin: c.pin, sent: c.sentIn !== null }] : [])),
     );
+  }
+
+  /** Comment on selection only applies in Interact mode, with nothing to comment on it already, and the round still open. */
+  private syncSelectionWatcher(): void {
+    this.selectionWatcher.setActive(this.mode === 'interact' && this.state.phase !== 'approved' && !this.overlay.composing);
   }
 
   /** Whose move it is, and what the agent last said. */
@@ -493,11 +528,26 @@ class Bar {
     const { pin } = comment;
     const pinned = pin ? [h('span', { class: 'num' }, String(numbers.get(comment.id)))] : [];
     const body = h('span', { class: 'body' }, comment.body);
-    if (pin) body.append(h('span', { class: 'meta' }, pin.text ? `${pin.tag} · ${pin.text}` : pin.tag));
+    if (pin) body.append(h('span', { class: 'meta' }, pin.quote ? `"${squeeze(pin.quote)}"` : pin.text ? `${pin.tag} · ${pin.text}` : pin.tag));
+    const url = pin?.url ?? comment.page;
+    if (url && !samePage(url, location.href)) body.append(this.pageLink(url));
     if (comment.sentIn !== null) return h('li', { class: 'item sent' }, ...pinned, body);
     const remove = h('button', { class: 'delete', type: 'button', 'aria-label': 'Delete comment', title: 'Delete' }, '×');
     remove.addEventListener('click', () => this.removeComment(comment.id));
     return h('li', { class: 'item' }, ...pinned, body, remove);
+  }
+
+  /**
+   * A comment left on another page: naming it, so the reviewer knows where to
+   * look for its marker. A trusted click sends the window there, where the
+   * bar remounts and the marker comes back on its element.
+   */
+  private pageLink(url: string): HTMLButtonElement {
+    const link = h('button', { class: 'page', type: 'button' }, `on ${pagePath(url, location.origin) ?? url}`);
+    link.addEventListener('click', (e) => {
+      if (e.isTrusted && /^https?:/.test(url)) location.href = url;
+    });
+    return link;
   }
 
   /** The list hangs under its toggle, kept inside the viewport on a narrow screen. */

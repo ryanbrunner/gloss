@@ -33,7 +33,10 @@ gloss install-chromium            # once: about 150 MB
 ```
 
 `gloss install-chromium` downloads the Chromium that Gloss's own Playwright
-drives, so the browser always matches it.
+drives, so the browser always matches it. On Linux it also needs system
+libraries that the download does not include; `gloss install-chromium` says
+so rather than installing them unasked. Run `gloss install-chromium
+--with-deps` to get those too (it asks for sudo).
 
 ### From a checkout
 
@@ -68,7 +71,7 @@ with a summary, and waits again, until you approve.
 gloss open <url> [--name N]    show <url> in the Gloss window, starting a session if there is none
 gloss status [--name N] [--json]   exit 0 and say where the session is and its phase, or exit 1 if there is none
 gloss close [--name N]         end the session and close its window
-gloss install-chromium         download the Chromium Gloss drives, once
+gloss install-chromium [--with-deps]   download the Chromium Gloss drives, once
 gloss --version                print Gloss's version
 
 gloss wait [--name N]          block until the reviewer submits or approves; print the verdict as JSON
@@ -127,7 +130,8 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
 `null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
-`tag`, `text`, `box` and the `viewport`, and the path of its `screenshot`.
+`tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, and
+`quote`, when it was made on a selection.
 
 ## The bar
 
@@ -142,6 +146,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   you press Escape (which closes an open box first) or Interact. On a phone
   the tools are one crosshair button that turns Select on and off. They are
   disabled once the review is approved.
+- In Interact, selecting text on the page offers a **Comment on selection**
+  button beside it; the comment it starts is pinned the same way, with the
+  selected words kept alongside it as a quote.
 - Each pinned comment gets a numbered marker on its element's top right
   corner, which follows it as the page scrolls; hover it to see the comment
   and outline the element. The list shows the same number with the element's
@@ -168,11 +175,28 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   below the bar, and 44px added to the page's own `scroll-padding-top`, so an
   anchor jump lands below the bar and any sticky header the page allows for.
   Fixed and sticky elements placed from the top of the viewport, such as a
-  header, are moved down by the same 44px.
+  header, are moved down by the same 44px. And since `100vh` still measures
+  the whole window, each `vh` length in the page's stylesheets is shortened
+  to match: `100vh` becomes `calc(100vh - 44px)`, so a full-height layout
+  ends at the bottom of the window rather than 44px past it.
+- The page under review is the code Claude is editing, so it must not be able
+  to approve. The bar's script runs in an isolated world: it shares the
+  page's DOM but none of its JavaScript, and only that world can reach the
+  session. Nothing the page patches (`JSON`, `Map`, `Promise`, a prototype)
+  is on the path a call takes. Submit, Approve and a comment's page link act
+  only on trusted clicks, so the page clicking them through the shadow root
+  does nothing, and the session refuses changes from frames and from pages
+  that are not http or https. `scripts/spikes/loop-check.ts` tries each of
+  these from the page.
 
 ### Known gaps
 
-- Layouts sized to `100vh` overflow by 44px.
+- A `vh` length the bar cannot rewrite still overflows by 44px: one in an
+  inline `style` attribute (including a `--vh` the page sets from
+  `innerHeight`), a cross-origin stylesheet, the page's own adopted or
+  shadow-root sheets, or a rule inserted into a sheet after it loaded, as
+  CSS-in-JS libraries do in production. `vmin`, `vmax` and `min-height`
+  media queries still measure the whole window.
 - A fixed or sticky element inside a web component's shadow root is not
   moved, and sits under the bar.
 - An element inside a web component's shadow root is pinned as the
@@ -182,17 +206,6 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   different element, and a sent pin's dimmed marker then sits on that one.
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
-- **The page under review shares a JavaScript realm with the bar.** It is the
-  code the agent is editing, so it must not be able to approve. Submit and
-  Approve act only on trusted clicks. The session refuses changes from frames
-  and from pages that are not http or https. Before any page script runs, the
-  init script takes the binding off `window`, puts a sealed stand-in over
-  Playwright's binding controller, and hides the raw DevTools binding. It
-  also stops sending if the page has patched `JSON.stringify`, or put a
-  `toJSON` or index setter on the prototypes. `scripts/spikes/loop-check.ts`
-  checks each of these. They depend on Playwright internals, and a page
-  determined enough to patch other builtins on the call path may still find
-  a way in. The real fix is running the bar in an isolated world.
 - `document.execCommand` edits whatever has focus, including the comment box,
   and in Chromium fires only a trusted `input` event with no `beforeinput`
   first, unlike a real edit. `createValueGuard` in `src/bar/dom.ts` marks a
@@ -209,9 +222,7 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   queued when a `beforeinput` gets no `input` at all - backspace in an empty
   box - could still land in the small gap before the fallback clears that
   box's flag. It cannot stop a page that writes `value` straight through
-  the shadow root, which is still open, or one that redefines
-  `HTMLTextAreaElement.prototype.value` before the bar runs; both want the
-  root closed and the bar in an isolated world.
+  the shadow root, which is still open; that wants the root closed.
 
 ## Why Playwright, not a proxy or an iframe
 
@@ -219,16 +230,17 @@ To pin comments to elements, the bar needs to reach the page's DOM.
 A cross-origin iframe can't do that, and `X-Frame-Options` or a CSP can refuse
 framing altogether. That leaves two choices: a proxy that injects the bar
 into the HTML it serves, or a browser that injects it for us. Gloss drives
-Chromium with Playwright, and registers the bar with `addInitScript` and
-`exposeBinding` on the browser context:
+Chromium with Playwright, and gives every page the bar over DevTools: a
+script run on each new document, in an isolated world, and a binding only
+that world can call:
 
 - **The page is untouched.** It loads from its real origin. A proxy would
   have to decompress and rewrite HTML and absolute URLs, relay the dev
   server's HMR websocket, strip CSP and frame headers, and keep cookies and
   redirects from escaping to the real origin.
-- **A strict CSP doesn't stop it.** Init scripts run whatever the page's CSP
+- **A strict CSP doesn't stop it.** The script runs whatever the page's CSP
   says. The bar's styles are constructed stylesheets rather than `<style>`
-  tags, and it talks to the session through the exposed binding rather than
+  tags, and it talks to the session through the binding rather than
   `fetch`, so neither `style-src` nor `connect-src` gets in the way.
 - **It follows you.** New tabs, client-side navigation and full reloads all
   get the bar again.
@@ -277,6 +289,7 @@ same elements; both take numbers, since a selector's `#` would end the query:
 | `/?gloss&seed=3&pins=3` | three comments pinned to storefront elements, with markers |
 | `/?gloss&sent=2&seed=1&pins=3` | two sent pins, dimmed, beside a new one |
 | `/?fixed` | a `position: fixed` header |
+| `/?fullheight` | an app shell sized to `100vh`, the shop scrolling inside it |
 | `/?csp` | served with a strict Content-Security-Policy |
 
 Two environment variables exist for the spike: `GLOSS_HEADLESS=1` runs the
