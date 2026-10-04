@@ -81,8 +81,10 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
   let bar: Bar | undefined;
   const picker = createPicker((e) => bar !== undefined && e.composedPath().includes(bar.host));
 
+  // MOUNTED, set above, is the only guard against mounting twice: a page
+  // cannot dodge it the way it could a `document.querySelector(HOST_TAG)`
+  // check, by planting a `<gloss-bar>` of its own for that to find.
   const start = () => {
-    if (document.querySelector(HOST_TAG)) return;
     bar = new Bar(transport, options, showStatusPadding, picker);
     bar.attach();
   };
