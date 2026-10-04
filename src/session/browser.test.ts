@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { handleRpc, visibleClip, type RpcSource } from './browser.js';
+import { handleRpc, missingSystemLibraries, visibleClip, type RpcSource } from './browser.js';
 import { CommentStore, type PinDraft } from './store.js';
 
 const PAGE: RpcSource = { url: 'http://127.0.0.1:4400/', topFrame: true };
@@ -141,5 +141,20 @@ describe('visibleClip', () => {
     assert.equal(visibleClip(draft({ box: { x: 10, y: 100, width: 100, height: 50 } }), view), null);
     assert.equal(visibleClip(draft({ box: { x: 10, y: 1010, width: 100, height: 30 } }), view), null);
     assert.equal(visibleClip(draft({ box: { x: 10, y: 1200, width: 0, height: 30 } }), view), null);
+  });
+});
+
+describe('missingSystemLibraries', () => {
+  test('matches the dependency check Playwright runs before spawning Chromium', () => {
+    const cause = new Error(
+      '\n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers.    ║\n║ Please install them with the following command:         ║\n║                                                          ║\n║     sudo npx playwright install-deps                    ║\n╚══════════════════════════════════════════════════════╝',
+    );
+    assert.ok(missingSystemLibraries(cause));
+  });
+
+  test('is false for other launch failures, or a non-Error', () => {
+    assert.equal(missingSystemLibraries(new Error('spawn ENOENT')), false);
+    assert.equal(missingSystemLibraries('boom'), false);
+    assert.equal(missingSystemLibraries(undefined), false);
   });
 });
