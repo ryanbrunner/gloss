@@ -18,10 +18,18 @@ class Gloss < Formula
   end
 
   def caveats
-    <<~EOS
+    s = <<~EOS
       Gloss drives a Chromium of its own. Download it once (about 150 MB,
       into Playwright's cache, ~/Library/Caches/ms-playwright on macOS):
         gloss install-chromium
+    EOS
+    s += <<~EOS if OS.linux?
+
+      Chromium also needs system libraries this formula does not install.
+      If `gloss open` cannot launch it after that, run:
+        npx playwright install-deps chromium
+    EOS
+    s + <<~EOS
 
       To run reviews from Claude Code, add the plugin there:
         /plugin marketplace add ryanbrunner/gloss
