@@ -9,7 +9,7 @@ import { OFFSET } from './styles.js';
  * so the page's own rules are rewritten in place: each `Nvh` becomes what it
  * would be in a viewport shorter by OFFSET, which follows the status line
  * onto a phone. A fixed panel `100vh` tall comes out right too, as pinned.ts
- * moves its top down by the bar's height.
+ * moves its top down by the same OFFSET.
  *
  * Shrinking the real viewport instead would not help while the bar is drawn
  * inside the page, and drawing it outside means framing the page, which Gloss
