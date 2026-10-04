@@ -16,14 +16,14 @@ export function playwrightCli(): string {
 /**
  * Said after a successful install, on Linux alone: this only fetches the
  * browser, and Chromium there also needs system libraries the download does
- * not include. CI gets them with `playwright install --with-deps` (sudo, in
- * a runner that already grants it); asking for sudo here on someone's own
- * machine would be a surprise, so this names the command instead of running
- * it.
+ * not include. `--with-deps` gets them too (sudo, in a runner that already
+ * grants it, or a person typing it as an explicit ask); asking for sudo
+ * unprompted here would be a surprise, so this names the flag instead of
+ * running it.
  */
 export function linuxDepsHint(platform: string): string | null {
   if (platform !== 'linux') return null;
-  return 'Chromium also needs system libraries on Linux. If `gloss open` cannot launch it, run:\n  npx playwright install-deps chromium';
+  return 'Chromium also needs system libraries on Linux. If `gloss open` cannot launch it, run:\n  gloss install-chromium --with-deps';
 }
 
 /**

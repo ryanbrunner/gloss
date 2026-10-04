@@ -12,7 +12,7 @@ test('finds the CLI of the Playwright Gloss imports, without running it', () => 
 });
 
 test('linuxDepsHint names install-deps on Linux alone', () => {
-  assert.match(linuxDepsHint('linux') ?? '', /playwright install-deps chromium/);
+  assert.match(linuxDepsHint('linux') ?? '', /gloss install-chromium --with-deps/);
   assert.equal(linuxDepsHint('darwin'), null);
   assert.equal(linuxDepsHint('win32'), null);
 });
