@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createDevServer } from '../dev.js';
+import { BAR_HEIGHT, STATUS_HEIGHT } from '../../src/bar/styles.js';
 import { pidAlive, readState, sessionRef } from '../../src/session/state.js';
 import type { RoundState } from '../../src/session/store.js';
 
@@ -408,6 +409,21 @@ try {
   await until('the round submitted', async () => ((await (await apiState()).json()) as RoundState).phase === 'submitted');
   await cspPage.getByRole('button', { name: 'Interact', exact: true }).click();
   assert.equal(await pressed('Interact'), 'true');
+
+  // On a narrow window the status line ("Sent round 1...") takes a line of
+  // its own under the bar, and a fixed header has to clear that too.
+  await cspPage.setViewportSize({ width: 390, height: 700 });
+  assert.equal((await gloss(['open', `${base}/?fixed`])).code, 0);
+  await until('the ?fixed page', () => pages[0]!.url().endsWith('/?fixed'));
+  await until(
+    'the fixed header below the bar and the status line',
+    async () => (await fixedHeaderTop()) === BAR_HEIGHT + STATUS_HEIGHT,
+  );
+  console.log('narrow window: fixed header moved down below the bar and the status line');
+  assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
+  await until('the ?csp page', () => cspPage.url().endsWith('/?csp'));
+  await cspPage.setViewportSize({ width: 1280, height: 800 });
+
   const ready = await gloss(['ready', 'Moved shipping above the total']);
   assert.equal(ready.code, 0, ready.stderr);
   await until('the dimmed marker', () => markerOnTotal(true));

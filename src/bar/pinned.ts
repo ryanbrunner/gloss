@@ -1,4 +1,4 @@
-import { BAR_HEIGHT } from './styles.js';
+import { OFFSET } from './styles.js';
 
 /**
  * Keeps the page's own fixed and sticky elements clear of the bar.
@@ -6,9 +6,11 @@ import { BAR_HEIGHT } from './styles.js';
  * PAGE_OFFSET moves everything in normal flow down, but an element pinned to
  * the viewport is placed from the viewport's top edge, which is still under
  * the bar: a `position: fixed; top: 0` header sits beneath it, and a sticky
- * one slides under it once the page scrolls. Each such element has the bar's
- * height added to its `top`, so the page lays out as though the viewport began
+ * one slides under it once the page scrolls. Each such element has OFFSET
+ * added to its `top`, so the page lays out as though the viewport began
  * below the bar, and a sidebar stuck below a sticky header stays below it.
+ * OFFSET follows the status line onto a narrow viewport, so a pinned element
+ * clears that too.
  *
  * Only a `top` the page set counts: an element pinned by its `bottom`, such as
  * a cookie banner, stays where it is. The elements are marked with an
@@ -59,7 +61,7 @@ export function keepPinnedClear(host: Element): void {
       if (id === undefined) ids.set(el, (id = String(++lastId)));
       if (el.getAttribute(MARK) !== id) el.setAttribute(MARK, id);
       next.add(el);
-      return `[${MARK}="${id}"]{top:calc(${top} + ${BAR_HEIGHT}px)!important}`;
+      return `[${MARK}="${id}"]{top:calc(${top} + ${OFFSET})!important}`;
     });
     for (const el of marked) if (!next.has(el)) el.removeAttribute(MARK);
     marked = next;
