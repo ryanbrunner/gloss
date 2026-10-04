@@ -47,7 +47,10 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-ser
  * Everything inside the shadow root. `:host` starts from `all: initial`, with
  * `!important` so a page rule such as `* { box-sizing: … }` or one aimed at
  * custom elements cannot reach the host either; an important declaration in a
- * shadow tree beats one from the page.
+ * shadow tree beats one from the page. That reset also clears the UA
+ * stylesheet's own styles for the `popover` attribute bar.ts sets on the
+ * host (`inset: 0`, `margin: auto`, `display: none` until shown), which are
+ * not `!important` and so lose to it in turn.
  */
 export const BAR_STYLES = `
 :host {

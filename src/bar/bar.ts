@@ -29,7 +29,14 @@ import { fitViewportUnits } from './viewport.js';
  *
  * It runs inside someone else's page, so it keeps to itself. Its DOM is in a
  * shadow root on one `<gloss-bar>` element, hung off `<html>` rather than
- * `<body>` so a framework that owns the body never sees it. Its styles are
+ * `<body>` so a framework that owns the body never sees it, and raised into
+ * the top layer as a `manual` popover, which `position: fixed` and a high
+ * z-index cannot do on their own: an ancestor's `opacity`, `filter` or
+ * `clip-path` cannot touch it, and a page popover opened after it is pushed
+ * back below. A page's modal `<dialog>` is the one thing this does not beat
+ * — Chromium keeps a modal dialog topmost over any popover regardless of
+ * show order, and making the bar itself a modal dialog to compete would make
+ * the rest of the page inert, which Interact mode cannot allow. Its styles are
  * constructed stylesheets, which a strict CSP's `style-src` does not block the
  * way it would an inline `<style>`, and its DOM is built node by node rather
  * than through `innerHTML`, for pages that enforce Trusted Types. The marks
@@ -100,6 +107,7 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
 class Bar {
   readonly host = document.createElement(HOST_TAG);
   private readonly root = this.host.attachShadow({ mode: 'open' });
+  private readonly popoverSupported = typeof this.host.showPopover === 'function';
   private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, comments: [] };
   private listOpen: boolean;
 
@@ -229,6 +237,24 @@ class Bar {
     this.narrow.addEventListener('change', placeholder);
     placeholder();
 
+    // The page can still close the popover directly (hidePopover(), or
+    // switching it off), which fires this on the host; raise() undoes it.
+    this.host.addEventListener('toggle', (e) => {
+      if ((e as ToggleEvent).newState === 'closed') this.raise();
+    });
+    // A popover the page opens after the bar mounted would otherwise land
+    // above the host: the top layer orders popovers by when they were
+    // shown. `toggle` does not bubble, but the capture phase still reaches
+    // `document` for one opened anywhere in the page. (A modal <dialog> is
+    // not reclaimed this way — see the class comment above.)
+    document.addEventListener(
+      'toggle',
+      (e) => {
+        if (e.target !== this.host && (e as ToggleEvent).newState === 'open') this.stayOnTop();
+      },
+      { capture: true },
+    );
+
     this.keepAttached();
     keepPinnedClear(this.host);
     this.transport.subscribe((s) => this.render(s));
@@ -247,20 +273,55 @@ class Bar {
   /**
    * Hydration or a router swapping out the document's children can take the
    * host with it. It goes straight back, with its state, since the element
-   * and its shadow root are the same objects.
+   * and its shadow root are the same objects. Removing an open popover from
+   * the document closes it, so each reattachment raises it again.
    */
   private keepAttached(): void {
     let observed = document.documentElement;
+    const attach = () => {
+      observed.append(this.host);
+      this.raise();
+    };
     const observer = new MutationObserver(() => {
       if (document.documentElement !== observed) {
         observed = document.documentElement;
         observer.observe(observed, { childList: true });
       }
-      if (!this.host.isConnected) observed.append(this.host);
+      if (!this.host.isConnected) attach();
     });
     observer.observe(document, { childList: true });
     observer.observe(observed, { childList: true });
-    observed.append(this.host);
+    attach();
+  }
+
+  /**
+   * Puts the host in the browser's top layer, above z-index and an
+   * ancestor's `opacity`, `filter` or `clip-path`, none of which the host's
+   * own stacking context can escape. `manual` so a click on the page cannot
+   * light-dismiss it. Where the Popover API is missing, the host falls back
+   * on its z-index and `position: fixed` alone.
+   */
+  private raise(): void {
+    if (!this.popoverSupported) return;
+    if (this.host.getAttribute('popover') !== 'manual') this.host.setAttribute('popover', 'manual');
+    try {
+      if (!this.host.matches(':popover-open')) this.host.showPopover();
+    } catch {
+      // Disconnected, or mid-toggle: keepAttached() or the next raise() puts it back.
+    }
+  }
+
+  /**
+   * Moves the host to the top of the top layer's stack, which otherwise
+   * orders popovers by when they were shown. Closing and at once reopening
+   * leaves nothing painted in between. Does nothing against a modal
+   * `<dialog>`, which Chromium keeps topmost over any popover regardless of
+   * show order.
+   */
+  private stayOnTop(): void {
+    if (!this.popoverSupported || !this.host.matches(':popover-open')) return;
+    this.host.hidePopover();
+    this.raise();
   }
 
   private addComment(): void {
