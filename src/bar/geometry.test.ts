@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { placePopover, samePage, squeeze } from './geometry.js';
+import { pagePath, placePopover, samePage, squeeze } from './geometry.js';
 import { BAR_HEIGHT } from './styles.js';
 
 describe('squeeze', () => {
@@ -33,6 +33,23 @@ describe('samePage', () => {
 
   test('never matches a pin with no URL of its own', () => {
     assert.ok(!samePage('', 'http://127.0.0.1:4400/'));
+  });
+});
+
+describe('pagePath', () => {
+  const origin = 'http://127.0.0.1:4400';
+
+  test('keeps the path and query, drops the origin and hash', () => {
+    assert.equal(pagePath('http://127.0.0.1:4400/cart?gloss#summary', origin), '/cart?gloss');
+    assert.equal(pagePath('http://127.0.0.1:4400/', origin), '/');
+  });
+
+  test('keeps the host for a URL on another origin, which the path alone would misname', () => {
+    assert.equal(pagePath('http://localhost:4400/cart', origin), 'localhost:4400/cart');
+  });
+
+  test('is null for a URL that will not parse', () => {
+    assert.equal(pagePath('not a url', origin), null);
   });
 });
 

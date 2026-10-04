@@ -219,6 +219,39 @@ try {
   await until('the fixed header below the bar', async () => (await fixedHeaderTop()) === 44);
   console.log('fixed header: moved down below the bar');
 
+  // A layout sized to 100vh fits below the bar rather than scrolling by its
+  // height, and so does a fixed panel 100vh tall, a stylesheet added later.
+  assert.equal((await gloss(['open', `${base}/?fullheight`])).code, 0);
+  await until('the ?fullheight page', () => pages[0]!.url().endsWith('/?fullheight'));
+  await pages[0]!.locator('gloss-bar .bar').waitFor();
+  const fullHeight = () =>
+    pages[0]!.evaluate(() => {
+      const body = document.body.getBoundingClientRect();
+      const panel = document.querySelector('.gloss-check-panel')?.getBoundingClientRect();
+      return {
+        scrolls: document.scrollingElement!.scrollHeight - innerHeight,
+        body: [body.top, body.bottom - innerHeight],
+        panel: panel && [panel.top, panel.bottom - innerHeight],
+      };
+    });
+  await until('the app shell between the bar and the bottom, the page not scrolling', async () => {
+    const { body, scrolls } = await fullHeight();
+    return body[0] === 44 && body[1] === 0 && scrolls === 0;
+  });
+  await pages[0]!.evaluate(() => {
+    const style = document.createElement('style');
+    style.textContent = '.gloss-check-panel{position:fixed;top:0;right:0;width:8px;height:100vh}';
+    const panel = document.createElement('div');
+    panel.className = 'gloss-check-panel';
+    document.head.append(style);
+    document.body.append(panel);
+  });
+  await until('the fixed panel between the bar and the bottom', async () => {
+    const { panel } = await fullHeight();
+    return panel?.[0] === 44 && panel[1] === 0;
+  });
+  console.log('full height: the app shell and a fixed 100vh panel fit below the bar');
+
   // A strict CSP does not keep the bar out, or unstyled.
   assert.equal((await gloss(['open', `${base}/?csp`])).code, 0);
   const cspPage = await windowPage();

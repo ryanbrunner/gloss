@@ -33,8 +33,12 @@ gloss install-chromium            # once: about 150 MB
 ```
 
 `gloss install-chromium` downloads the Chromium that Gloss's own Playwright
-drives, so the browser always matches it. On Linux, add `--with-deps` to
-also install the system libraries Chromium needs to launch (apt, via sudo).
+drives, so the browser always matches it. On Linux it also needs system
+libraries that the download does not include. Add `--with-deps`
+(`gloss install-chromium --with-deps`) to install them too, via apt and sudo;
+without it, `gloss install-chromium` says so and names the command
+(`npx playwright install-deps chromium`, which asks for sudo) rather than
+running it for you.
 
 ### From a checkout
 
@@ -169,11 +173,19 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   below the bar, and 44px added to the page's own `scroll-padding-top`, so an
   anchor jump lands below the bar and any sticky header the page allows for.
   Fixed and sticky elements placed from the top of the viewport, such as a
-  header, are moved down by the same 44px.
+  header, are moved down by the same 44px. And since `100vh` still measures
+  the whole window, each `vh` length in the page's stylesheets is shortened
+  to match: `100vh` becomes `calc(100vh - 44px)`, so a full-height layout
+  ends at the bottom of the window rather than 44px past it.
 
 ### Known gaps
 
-- Layouts sized to `100vh` overflow by 44px.
+- A `vh` length the bar cannot rewrite still overflows by 44px: one in an
+  inline `style` attribute (including a `--vh` the page sets from
+  `innerHeight`), a cross-origin stylesheet, the page's own adopted or
+  shadow-root sheets, or a rule inserted into a sheet after it loaded, as
+  CSS-in-JS libraries do in production. `vmin`, `vmax` and `min-height`
+  media queries still measure the whole window.
 - A fixed or sticky element inside a web component's shadow root is not
   moved, and sits under the bar.
 - An element inside a web component's shadow root is pinned as the
@@ -184,10 +196,11 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 - The window is Chrome for Testing, not your own browser: it has no profile,
   logins or extensions.
 - **The page under review shares a JavaScript realm with the bar.** It is the
-  code the agent is editing, so it must not be able to approve. Submit and
-  Approve act only on trusted clicks. The session refuses changes from frames
-  and from pages that are not http or https. Before any page script runs, the
-  init script takes the binding off `window`, puts a sealed stand-in over
+  code the agent is editing, so it must not be able to approve. Submit,
+  Approve and a comment's page link act only on trusted clicks. The session
+  refuses changes from frames and from pages that are not http or https.
+  Before any page script runs, the init script takes the binding off
+  `window`, puts a sealed stand-in over
   Playwright's binding controller, and hides the raw DevTools binding. It
   also stops sending if the page has patched `JSON.stringify`, or put a
   `toJSON` or index setter on the prototypes. `scripts/spikes/loop-check.ts`
@@ -259,6 +272,7 @@ same elements; both take numbers, since a selector's `#` would end the query:
 | `/?gloss&seed=3&pins=3` | three comments pinned to storefront elements, with markers |
 | `/?gloss&sent=2&seed=1&pins=3` | two sent pins, dimmed, beside a new one |
 | `/?fixed` | a `position: fixed` header |
+| `/?fullheight` | an app shell sized to `100vh`, the shop scrolling inside it |
 | `/?csp` | served with a strict Content-Security-Policy |
 
 Two environment variables exist for the spike: `GLOSS_HEADLESS=1` runs the

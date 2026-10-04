@@ -6,9 +6,16 @@ export const BAR_HEIGHT = 44;
  * everything in normal flow with it; scroll-padding.ts adds the bar's height
  * to the page's own scroll padding, so an anchor jump lands below both. An
  * element pinned to the viewport does not move with `html`; pinned.ts moves
- * those.
+ * those. `vh` still measures the whole window; viewport.ts takes OFFSET off
+ * the page's `vh` lengths, so it is set alongside the margin it matches.
  */
-export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important}`;
+export const PAGE_OFFSET = `html{margin-top:${BAR_HEIGHT}px!important;--gloss-offset:${BAR_HEIGHT}px!important}`;
+
+/**
+ * How far the page is pushed down right now, for a `calc()` in the page's own
+ * styles. Nothing, should the page throw PAGE_OFFSET out.
+ */
+export const OFFSET = 'var(--gloss-offset, 0px)';
 
 /** Where the bar sheds its labels to fit a phone. */
 export const NARROW = '(max-width: 640px)';
@@ -21,7 +28,7 @@ export const STATUS_HEIGHT = 24;
  * rather than covering it. The matching scroll padding is scroll-padding.ts's,
  * which has to add it to whatever the page sets rather than replace it.
  */
-export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
+export const STATUS_OFFSET = `@media ${NARROW}{html{margin-top:${BAR_HEIGHT + STATUS_HEIGHT}px!important;--gloss-offset:${BAR_HEIGHT + STATUS_HEIGHT}px!important}}`;
 
 /**
  * Reeve's dark palette, from reeve/packages/web/src/index.css, so the bar
@@ -231,6 +238,25 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .sent .num { background: ${MUTED}; opacity: 0.7; }
 .meta { display: block; margin-top: 3px; color: ${MUTED}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Where a comment was left, for one not on this page. Reset off the global button rule, to read as a link rather than a button. */
+.page {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  height: auto;
+  color: ${SKY};
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page:hover { text-decoration: underline; }
 .summary { padding: 10px 13px; border-bottom: 1px solid ${EDGE}; background: rgba(56, 189, 248, 0.06); white-space: pre-wrap; }
 .summary .label { display: block; margin-bottom: 3px; color: ${SKY}; font-size: 11px; font-weight: 600; }
 

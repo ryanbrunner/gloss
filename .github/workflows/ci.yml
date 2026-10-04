@@ -64,14 +64,23 @@ jobs:
       - name: gloss install-chromium --with-deps works from the packed install
         run: $RUNNER_TEMP/g/bin/gloss install-chromium --with-deps
 
-  # The formula template, linted and audited from a tap, as the published
-  # copy is: Homebrew's rules for formulae go by where the file sits.
+  # The formula template, linted, audited, and actually installed from a tap,
+  # as the published copy is: Homebrew's rules for formulae go by where the
+  # file sits, and style/audit alone never builds it. docs/releasing.md has
+  # the by-hand version of this recipe.
   formula:
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - run: git archive --prefix=gloss/ HEAD | gzip > "$RUNNER_TEMP/gloss.tar.gz"
       - run: brew tap-new --no-git local/gloss-check
-      - run: cp packaging/homebrew/gloss.rb "$(brew --repository local/gloss-check)/Formula/gloss.rb"
+      - name: Render the formula with the tarball's file:// url and sha256
+        run: |
+          sed -e "s|^  url \".*\"$|  url \"file://$RUNNER_TEMP/gloss.tar.gz\"|" \
+              -e "s|^  sha256 \".*\"$|  sha256 \"$(shasum -a 256 "$RUNNER_TEMP/gloss.tar.gz" | cut -d' ' -f1)\"|" \
+              packaging/homebrew/gloss.rb > "$(brew --repository local/gloss-check)/Formula/gloss.rb"
       - run: brew style local/gloss-check/gloss
       - run: brew audit --strict --formula local/gloss-check/gloss
+      - run: brew install --build-from-source local/gloss-check/gloss
+      - run: brew test local/gloss-check/gloss
