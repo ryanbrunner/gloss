@@ -1,0 +1,104 @@
+name: Release
+
+# A v* tag releases Gloss: a GitHub release, and the formula in
+# ryanbrunner/homebrew-tap made from packaging/homebrew/gloss.rb for the tag.
+# Run by hand, it is a dry run: it prints the formula and publishes nothing.
+# docs/releasing.md has the whole of it.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to make the formula for, such as v0.1.0
+        required: true
+
+permissions: {}
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # First, so a tag that disagrees with either version publishes nothing.
+      - name: The tag matches package.json and plugin.json
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a release tag (vX.Y.Z)"
+            exit 1
+          fi
+          for file in package.json plugin/.claude-plugin/plugin.json; do
+            version=$(jq -r .version "$file")
+            if [ "v$version" != "$TAG" ]; then
+              echo "::error file=$file::version is $version, but the tag is $TAG"
+              exit 1
+            fi
+          done
+
+      # A dry run before the tag exists hashes this commit's tarball instead:
+      # the url is the tag's, the sha256 only stands in for it.
+      - name: Hash the tag's tarball
+        run: |
+          url="https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$TAG.tar.gz"
+          if ! curl -fsSL "$url" -o gloss.tar.gz; then
+            if [ "$DRY_RUN" != true ]; then
+              echo "::error::could not download $url"
+              exit 1
+            fi
+            echo "::notice::$TAG does not exist yet; hashing $GITHUB_SHA's tarball instead"
+            curl -fsSL "https://github.com/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz" -o gloss.tar.gz
+          fi
+          echo "URL=$url" >> "$GITHUB_ENV"
+          echo "SHA256=$(sha256sum gloss.tar.gz | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Make the formula
+        run: |
+          sed -e "s|^  url \".*\"$|  url \"$URL\"|" \
+              -e "s|^  sha256 \".*\"$|  sha256 \"$SHA256\"|" \
+              packaging/homebrew/gloss.rb > "$RUNNER_TEMP/gloss.rb"
+          # Each line replaced exactly once, or the template has changed shape.
+          test "$(grep -cxF "  url \"$URL\"" "$RUNNER_TEMP/gloss.rb")" = 1
+          test "$(grep -cxE "  sha256 \"[0-9a-f]{64}\"" "$RUNNER_TEMP/gloss.rb")" = 1
+          grep -qxF "  sha256 \"$SHA256\"" "$RUNNER_TEMP/gloss.rb"
+          cat "$RUNNER_TEMP/gloss.rb"
+
+      # Before the release, so a missing or revoked deploy key stops it there.
+      - uses: actions/checkout@v4
+        if: env.DRY_RUN != 'true'
+        with:
+          repository: ryanbrunner/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+          path: tap
+
+      # Left alone if it exists, so the job can be rerun after a failed push.
+      - name: Create the GitHub release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+
+      - name: Push the formula to the tap
+        if: env.DRY_RUN != 'true'
+        working-directory: tap
+        run: |
+          mkdir -p Formula
+          cp "$RUNNER_TEMP/gloss.rb" Formula/gloss.rb
+          git add Formula/gloss.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has gloss ${TAG#v}"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "gloss ${TAG#v}"
+          git push origin HEAD:main

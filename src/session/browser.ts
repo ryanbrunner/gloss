@@ -24,7 +24,7 @@ import type { Box, CommentStore, Pin, RoundState } from './store.js';
  * launched dies with the process that launched it.
  */
 
-const INSTALL_HINT = 'Run `npx playwright install chromium`.';
+const INSTALL_HINT = 'Run `gloss install-chromium`.';
 
 /** Why Chromium cannot start, before trying: said by `gloss open` rather than found in a log. */
 export function chromiumMissing(): string | null {
@@ -51,6 +51,7 @@ const rpcCall = z.discriminatedUnion('method', [
   z.object({ method: z.literal('state') }),
   z.object({ method: z.literal('add'), body: z.string().max(20_000), pin: pinDraft.optional() }),
   z.object({ method: z.literal('remove'), id: z.string() }),
+  z.object({ method: z.literal('edit'), id: z.string(), body: z.string().max(20_000) }),
   z.object({ method: z.literal('submit') }),
   z.object({ method: z.literal('approve'), discardUnsent: z.boolean() }),
 ]);
@@ -97,6 +98,8 @@ export async function handleRpc(
     store.add(data.body, from.url, pin);
   }
   if (data.method === 'remove') store.remove(data.id);
+  // The pin does not move, so the screenshot taken for it still stands.
+  if (data.method === 'edit') store.edit(data.id, data.body);
   if (data.method === 'submit') store.submit(from.url);
   if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
   return store.snapshot();

@@ -75,15 +75,8 @@ export const BAR_STYLES = `
   font: 13px/1.35 ${FONT};
   -webkit-font-smoothing: antialiased;
 }
-.mark { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
-.round {
-  padding: 1px 9px;
-  border: 1px solid ${EDGE};
-  border-radius: 999px;
-  color: ${MUTED};
-  font-size: 12px;
-  white-space: nowrap;
-}
+.mark { display: flex; align-items: center; }
+.mark svg { flex: none; }
 /* Interact and Select, as one segmented control. */
 .tools { display: flex; flex: none; border: 1px solid ${EDGE}; border-radius: 6px; overflow: hidden; }
 .tool {
@@ -290,7 +283,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
   color: ${INK};
   font: 700 10px/16px ${FONT};
   text-align: center;
-  cursor: default;
+  cursor: pointer;
 }
 .marker.sent { background: ${MUTED}; opacity: 0.55; }
 .composer {
@@ -313,7 +306,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media ${NARROW} {
   .bar { gap: 6px; padding: 0 8px; }
-  .mark, .round, .toggle-label { display: none; }
+  .mark, .toggle-label { display: none; }
   button { padding: 0 8px; }
   /* The tools become one icon button, Select, pressed while it is on. */
   .tools { border: none; }

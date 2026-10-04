@@ -20,6 +20,7 @@ import { resolvePin } from './target.js';
 
 /** A pinned comment, as its marker shows it. */
 export interface Marker {
+  id: string;
   n: number;
   body: string;
   pin: Pin;
@@ -51,9 +52,12 @@ export class Overlay {
   /** Where the picked element was last seen, for when it goes from the page while the box is open. */
   private pickedRect: Rect | null = null;
   private markers: Array<[HTMLElement, Marker]> = [];
+  /** Kept, since the markers are made again on every render. */
+  private readonly onMarker: (marker: Marker) => void;
   private queued = false;
 
-  constructor(actions: { add: () => void; cancel: () => void }) {
+  constructor(actions: { add: () => void; cancel: () => void; edit: (marker: Marker) => void }) {
+    this.onMarker = actions.edit;
     this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer);
     this.send.addEventListener('click', actions.add);
     this.cancel.addEventListener('click', actions.cancel);
@@ -85,6 +89,10 @@ export class Overlay {
     this.heading.textContent = draft.text ? `Comment on ${draft.tag} · ${draft.text}` : `Comment on ${draft.tag}`;
     this.heading.title = this.heading.textContent;
     this.input.value = '';
+    this.input.readOnly = false;
+    this.send.hidden = false;
+    this.send.textContent = 'Add';
+    this.cancel.textContent = 'Cancel';
     // In the layer only while it is open: nothing looking for the bar's own textarea finds this one instead.
     this.layer.append(this.composer);
     this.draw();
@@ -97,6 +105,20 @@ export class Overlay {
     this.queue();
   }
 
+  /**
+   * The box on an element that already has a comment, with its text in it: to
+   * change, or, for a comment already sent, only to read. A sent comment is
+   * history the agent has acted on, so there is nothing to save.
+   */
+  openExisting(el: Element, marker: Marker): void {
+    this.open(el, marker.pin);
+    this.input.value = marker.body;
+    this.input.readOnly = marker.sent;
+    this.send.hidden = marker.sent;
+    this.send.textContent = 'Save';
+    this.cancel.textContent = marker.sent ? 'Close' : 'Cancel';
+  }
+
   /** Hidden, all of it, while the session photographs the page. */
   setCapturing(capturing: boolean): void {
     this.layer.classList.toggle('capturing', capturing);
@@ -105,7 +127,23 @@ export class Overlay {
 
   setMarkers(markers: Marker[]): void {
     this.markers = markers.map((m) => {
-      const el = h('span', { class: m.sent ? 'marker sent' : 'marker', title: m.body }, String(m.n));
+      const el = h(
+        'span',
+        {
+          class: m.sent ? 'marker sent' : 'marker',
+          title: m.body,
+          role: 'button',
+          tabindex: '0',
+          'aria-label': `Comment ${m.n}: ${m.body}`,
+        },
+        String(m.n),
+      );
+      el.addEventListener('click', () => this.onMarker(m));
+      el.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        this.onMarker(m);
+      });
       el.addEventListener('pointerenter', () => {
         this.markerHovered = resolvePin(m.pin);
         this.queue();

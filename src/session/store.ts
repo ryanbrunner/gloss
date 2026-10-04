@@ -126,6 +126,22 @@ export class CommentStore {
     return true;
   }
 
+  /**
+   * Changes an unsent comment's text. Null when there is no such comment, or
+   * nothing to put in it: an empty box leaves the comment as it was, and the
+   * list is where a comment is deleted.
+   */
+  edit(id: string, body: string): Comment | null {
+    const text = body.trim();
+    if (!text) return null;
+    const comment = this.comments.find((c) => c.id === id);
+    if (!comment) return null;
+    if (comment.sentIn !== null) throw new Error(`that comment went out in round ${comment.sentIn} and cannot be changed`);
+    comment.body = text;
+    this.changed();
+    return copy(comment);
+  }
+
   /** Sends every comment not yet sent as this round, and starts the next. */
   submit(page: string | null): Verdict {
     this.expect('reviewing', 'submit');

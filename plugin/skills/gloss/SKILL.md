@@ -21,8 +21,8 @@ Gloss never changes code itself. You do, between `gloss working` and
 command -v gloss
 ```
 
-If there is nothing, stop and tell the user to run `npm link` in their Gloss
-checkout (and `npx playwright install chromium` once).
+If there is nothing, stop and tell the user to install it with
+`brew install ryanbrunner/tap/gloss`, then run `gloss install-chromium` once.
 
 ## Step 2: Open the page
 

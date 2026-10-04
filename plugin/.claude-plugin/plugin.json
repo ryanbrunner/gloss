@@ -1,6 +1,6 @@
 {
   "name": "gloss",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Review a running web app in a browser with a feedback bar on top, and have Claude apply each round of comments until you approve.",
   "author": {
     "name": "Ryan Brunner"

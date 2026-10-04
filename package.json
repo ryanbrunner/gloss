@@ -1,7 +1,16 @@
 {
   "name": "gloss",
+  "version": "0.2.0",
   "description": "Review a running web app in a browser with a feedback bar on top, and hand the comments to Claude",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanbrunner/gloss.git"
+  },
+  "homepage": "https://github.com/ryanbrunner/gloss#readme",
+  "bugs": {
+    "url": "https://github.com/ryanbrunner/gloss/issues"
+  },
   "private": true,
   "type": "module",
   "engines": {
@@ -10,6 +19,15 @@
   "bin": {
     "gloss": "./bin/gloss.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "!src/**/*.test.ts",
+    "schema",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "gloss": "node bin/gloss.js",
