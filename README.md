@@ -35,8 +35,8 @@ gloss install-chromium            # once: about 150 MB
 `gloss install-chromium` downloads the Chromium that Gloss's own Playwright
 drives, so the browser always matches it. On Linux it also needs system
 libraries that the download does not include; `gloss install-chromium` says
-so and names the command (`npx playwright install-deps chromium`, which asks
-for sudo) rather than running it for you.
+so rather than installing them unasked. Run `gloss install-chromium
+--with-deps` to get those too (it asks for sudo).
 
 ### From a checkout
 
@@ -71,7 +71,7 @@ with a summary, and waits again, until you approve.
 gloss open <url> [--name N]    show <url> in the Gloss window, starting a session if there is none
 gloss status [--name N] [--json]   exit 0 and say where the session is and its phase, or exit 1 if there is none
 gloss close [--name N]         end the session and close its window
-gloss install-chromium         download the Chromium Gloss drives, once
+gloss install-chromium [--with-deps]   download the Chromium Gloss drives, once
 gloss --version                print Gloss's version
 
 gloss wait [--name N]          block until the reviewer submits or approves; print the verdict as JSON
