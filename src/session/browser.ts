@@ -24,7 +24,7 @@ import type { Box, CommentStore, Pin, RoundState } from './store.js';
  * launched dies with the process that launched it.
  */
 
-const INSTALL_HINT = 'Run `gloss install-chromium`.';
+const INSTALL_HINT = 'Run `gloss install-chromium` (add --with-deps on Linux).';
 
 /** Why Chromium cannot start, before trying: said by `gloss open` rather than found in a log. */
 export function chromiumMissing(): string | null {
