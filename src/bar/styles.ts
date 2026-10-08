@@ -269,7 +269,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
  * as the page scrolls; never in the way of the pointer, but for the markers
  * and the box.
  */
-.highlight, .marker, .composer, .selection-comment { position: fixed; }
+.highlight, .marker, .composer, .selection-buttons { position: fixed; }
 .highlight {
   z-index: 1;
   pointer-events: none;
@@ -308,8 +308,9 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
   cursor: pointer;
 }
 .marker.sent { background: ${MUTED}; opacity: 0.55; }
+/* "Comment on selection" and "Suggest edit", side by side as alternatives rather than a progression. */
+.selection-buttons { z-index: 3; display: flex; gap: 6px; }
 .selection-comment {
-  z-index: 3;
   padding: 4px 10px;
   border: 1px solid ${EDGE};
   border-radius: 6px;
@@ -321,6 +322,8 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
   cursor: pointer;
 }
 .selection-comment:hover { background: rgba(56, 189, 248, 0.12); }
+.selection-comment.suggest { color: ${EMERALD}; }
+.selection-comment.suggest:hover { background: rgba(52, 211, 153, 0.12); }
 .composer {
   z-index: 3;
   width: min(320px, calc(100vw - 16px));
