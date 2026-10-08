@@ -130,8 +130,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or
 `null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
-`tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, and
-`quote`, when it was made on a selection.
+`tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, `quote`
+when it was made on a selection, and `suggestion` when it proposed a
+replacement for the quote.
 
 ## The bar
 
@@ -148,7 +149,10 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
   disabled once the review is approved.
 - In Interact, selecting text on the page offers a **Comment on selection**
   button beside it; the comment it starts is pinned the same way, with the
-  selected words kept alongside it as a quote.
+  selected words kept alongside it as a quote. A second button, **Suggest
+  edit**, opens the same box pre-filled with the quote, to edit into the
+  words that should replace it; its comment's body is composed for you from
+  the quote and the proposal, kept on the pin as `suggestion`.
 - Each pinned comment gets a numbered marker on its element's top right
   corner, which follows it as the page scrolls; hover it to see the comment
   and outline the element. The list shows the same number with the element's
