@@ -61,8 +61,6 @@ export class Overlay {
   private readonly onMarker: (marker: Marker) => void;
   /** What the selection buttons, while shown, would open the composer on. */
   private selected: Selected | null = null;
-  /** The box open on it is suggesting a replacement rather than a plain comment. */
-  private suggesting = false;
   private queued = false;
 
   constructor(actions: {
@@ -107,7 +105,6 @@ export class Overlay {
   open(el: Element, draft: PinDraft): void {
     this.picked = el;
     this.pickedRect = null;
-    this.suggesting = false;
     this.heading.textContent = draft.quote
       ? `Comment on "${squeeze(draft.quote)}"`
       : draft.text
@@ -135,7 +132,6 @@ export class Overlay {
    */
   openSuggest(el: Element, draft: PinDraft): void {
     this.open(el, draft);
-    this.suggesting = true;
     const quote = squeeze(draft.quote ?? '');
     this.heading.textContent = `Suggest a replacement for "${quote}"`;
     this.heading.title = this.heading.textContent;
@@ -147,7 +143,6 @@ export class Overlay {
 
   close(): void {
     this.picked = null;
-    this.suggesting = false;
     this.composer.remove();
     this.queue();
   }
@@ -155,15 +150,19 @@ export class Overlay {
   /**
    * The box on an element that already has a comment, with its text in it: to
    * change, or, for a comment already sent, only to read. A sent comment is
-   * history the agent has acted on, so there is nothing to save.
+   * history the agent has acted on, so there is nothing to save. A suggested
+   * edit's body is generated from `pin.quote` and `pin.suggestion`, not
+   * written by the reviewer, so it is read-only too: changing the proposal
+   * means deleting the pin and suggesting again.
    */
   openExisting(el: Element, marker: Marker): void {
     this.open(el, marker.pin);
+    const locked = marker.sent || marker.pin.suggestion !== undefined;
     this.input.value = marker.body;
-    this.input.readOnly = marker.sent;
-    this.send.hidden = marker.sent;
+    this.input.readOnly = locked;
+    this.send.hidden = locked;
     this.send.textContent = 'Save';
-    this.cancel.textContent = marker.sent ? 'Close' : 'Cancel';
+    this.cancel.textContent = locked ? 'Close' : 'Cancel';
   }
 
   /** Hidden, all of it, while the session photographs the page. */

@@ -418,13 +418,16 @@ class Bar {
     const { picked } = this;
     const text = this.overlay.input.value;
     if (!picked || !text.trim()) return;
+    // Nothing proposed to change: a suggestion that only echoes the quote back is not worth pinning.
+    if (picked.suggesting && text.trim() === (picked.draft.quote ?? '').trim()) return;
     const quote = picked.draft.quote;
     const pin = picked.el.isConnected
       ? pinDraftFor(picked.el, quote, picked.suggesting ? text : undefined)
       : { ...picked.draft, ...(picked.suggesting && { suggestion: text.trim().slice(0, 4_000) }) };
-    // A suggestion's body is composed from the quote and the proposed
-    // replacement, not typed by the reviewer: there is no separate note to add.
-    const body = picked.suggesting ? `Suggest replacing "${quote ?? ''}" with "${text.trim()}"` : text;
+    // Composed from what the pin actually stored, not the raw textarea, so
+    // body and target.suggestion agree even once both are capped at 4000
+    // characters; there is no separate note for the reviewer to add.
+    const body = picked.suggesting ? `Suggest replacing "${pin.quote ?? ''}" with "${pin.suggestion ?? ''}"` : text;
     this.setCapturing(true);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     this.transport.add(body, pin).then(
