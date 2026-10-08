@@ -42,6 +42,8 @@ export interface Pin {
   viewport: { width: number; height: number };
   /** The words the reviewer selected, when they commented on a selection. */
   quote?: string;
+  /** The reviewer's proposed replacement for `quote`, when they suggested an edit rather than commenting. */
+  suggestion?: string;
   /** A PNG of the element, as the session saw it. Set by the session, never the page. */
   screenshot?: string;
 }
