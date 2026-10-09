@@ -322,5 +322,7 @@ function pin(): Pin {
     text: '$16.00',
     box: { x: 300, y: 420, width: 180, height: 20 },
     viewport: { width: 1280, height: 800 },
+    quote: '$16.00',
+    suggestion: '$16.00 (sale)',
   };
 }

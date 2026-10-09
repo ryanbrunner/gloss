@@ -23,7 +23,8 @@ import { fitViewportUnits } from './viewport.js';
  * A comment made that way is pinned: it keeps where the element was, the
  * session photographs it, and a numbered marker stays on the element. In
  * Interact mode, selecting text on the page offers the same pin, with the
- * selected words kept as the comment's quote.
+ * selected words kept as the comment's quote, or, with a second button, a
+ * proposed replacement for them kept as its suggestion.
  *
  * Submit, Approve, the approve confirmation and a comment's page link act
  * only on a click the browser made (`isTrusted`). The page under review can
@@ -77,6 +78,8 @@ export type Mode = 'interact' | 'select';
 interface Picked {
   el: Element;
   draft: PinDraft;
+  /** The box is open to propose a replacement for `draft.quote`, not to comment on it. */
+  suggesting: boolean;
 }
 
 // ↖ and a crosshair.
@@ -145,6 +148,7 @@ class Bar {
     cancel: () => this.closeComposer(),
     edit: (marker) => this.openExisting(marker),
     selectComment: (selected) => this.pickSelection(selected),
+    selectSuggest: (selected) => this.pickSuggestion(selected),
   });
   /** The comment the box is open on to change, rather than a new one. */
   private editing: string | null = null;
@@ -373,7 +377,7 @@ class Bar {
   private pick(el: Element): void {
     this.listOpen = false;
     this.render(this.state);
-    this.picked = { el, draft: pinDraftFor(el) };
+    this.picked = { el, draft: pinDraftFor(el), suggesting: false };
     this.editing = null;
     this.outsideSelect = false;
     this.overlay.open(el, this.picked.draft);
@@ -384,10 +388,21 @@ class Bar {
   private pickSelection(selected: Selected): void {
     this.listOpen = false;
     this.render(this.state);
-    this.picked = { el: selected.el, draft: pinDraftFor(selected.el, selected.quote) };
+    this.picked = { el: selected.el, draft: pinDraftFor(selected.el, selected.quote), suggesting: false };
     this.editing = null;
     this.outsideSelect = true;
     this.overlay.open(selected.el, this.picked.draft);
+    this.syncSelectionWatcher();
+  }
+
+  /** A selection was offered for a suggested replacement: the box opens pre-filled with the quote, to edit into the proposal. */
+  private pickSuggestion(selected: Selected): void {
+    this.listOpen = false;
+    this.render(this.state);
+    this.picked = { el: selected.el, draft: pinDraftFor(selected.el, selected.quote), suggesting: true };
+    this.editing = null;
+    this.outsideSelect = true;
+    this.overlay.openSuggest(selected.el, this.picked.draft);
     this.syncSelectionWatcher();
   }
 
@@ -401,9 +416,18 @@ class Bar {
    */
   private async addPinned(): Promise<void> {
     const { picked } = this;
-    const body = this.overlay.input.value;
-    if (!picked || !body.trim()) return;
-    const pin = picked.el.isConnected ? pinDraftFor(picked.el, picked.draft.quote) : picked.draft;
+    const text = this.overlay.input.value;
+    if (!picked || !text.trim()) return;
+    // Nothing proposed to change: a suggestion that only echoes the quote back is not worth pinning.
+    if (picked.suggesting && text.trim() === (picked.draft.quote ?? '').trim()) return;
+    const quote = picked.draft.quote;
+    const pin = picked.el.isConnected
+      ? pinDraftFor(picked.el, quote, picked.suggesting ? text : undefined)
+      : { ...picked.draft, ...(picked.suggesting && { suggestion: text.trim().slice(0, 4_000) }) };
+    // Composed from what the pin actually stored, not the raw textarea, so
+    // body and target.suggestion agree even once both are capped at 4000
+    // characters; there is no separate note for the reviewer to add.
+    const body = picked.suggesting ? `Suggest replacing "${pin.quote ?? ''}" with "${pin.suggestion ?? ''}"` : text;
     this.setCapturing(true);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     this.transport.add(body, pin).then(
@@ -446,7 +470,7 @@ class Bar {
     const el = resolvePin(marker.pin);
     if (!el) return this.setListOpen(true);
     this.listOpen = false;
-    this.picked = { el, draft: marker.pin };
+    this.picked = { el, draft: marker.pin, suggesting: false };
     this.editing = marker.sent ? null : marker.id;
     this.outsideSelect = true;
     this.overlay.openExisting(el, marker);
@@ -593,7 +617,16 @@ class Bar {
     const { pin } = comment;
     const pinned = pin ? [h('span', { class: 'num' }, String(numbers.get(comment.id)))] : [];
     const body = h('span', { class: 'body' }, comment.body);
-    if (pin) body.append(h('span', { class: 'meta' }, pin.quote ? `"${squeeze(pin.quote)}"` : pin.text ? `${pin.tag} · ${pin.text}` : pin.tag));
+    if (pin) {
+      const meta = pin.suggestion
+        ? `"${squeeze(pin.quote ?? '')}" → "${squeeze(pin.suggestion)}"`
+        : pin.quote
+          ? `"${squeeze(pin.quote)}"`
+          : pin.text
+            ? `${pin.tag} · ${pin.text}`
+            : pin.tag;
+      body.append(h('span', { class: 'meta' }, meta));
+    }
     const url = pin?.url ?? comment.page;
     if (url && !samePage(url, location.href)) body.append(this.pageLink(url));
     if (comment.sentIn !== null) return h('li', { class: 'item sent' }, ...pinned, body);

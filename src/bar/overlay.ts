@@ -35,7 +35,9 @@ export class Overlay {
   private readonly hoverBox = highlight();
   private readonly pickedBox = highlight('picked');
   private readonly markerLayer = h('div');
-  private readonly selectionButton = h('button', { class: 'selection-comment', type: 'button', hidden: '' }, 'Comment on selection');
+  private readonly selectionButton = h('button', { class: 'selection-comment', type: 'button' }, 'Comment on selection');
+  private readonly suggestButton = h('button', { class: 'selection-comment suggest', type: 'button' }, 'Suggest edit');
+  private readonly selectionButtons = h('div', { class: 'selection-buttons', hidden: '' }, this.selectionButton, this.suggestButton);
   private readonly heading = h('div', { class: 'composer-heading' });
   readonly input = h('textarea', { rows: '3', 'aria-label': 'Comment on this element' });
   private readonly cancel = h('button', { type: 'button' }, 'Cancel');
@@ -57,13 +59,19 @@ export class Overlay {
   private markers: Array<[HTMLElement, Marker]> = [];
   /** Kept, since the markers are made again on every render. */
   private readonly onMarker: (marker: Marker) => void;
-  /** What the selection button, while shown, would open the composer on. */
+  /** What the selection buttons, while shown, would open the composer on. */
   private selected: Selected | null = null;
   private queued = false;
 
-  constructor(actions: { add: () => void; cancel: () => void; edit: (marker: Marker) => void; selectComment: (selected: Selected) => void }) {
+  constructor(actions: {
+    add: () => void;
+    cancel: () => void;
+    edit: (marker: Marker) => void;
+    selectComment: (selected: Selected) => void;
+    selectSuggest: (selected: Selected) => void;
+  }) {
     this.onMarker = actions.edit;
-    this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer, this.selectionButton);
+    this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer, this.selectionButtons);
     this.send.addEventListener('click', actions.add);
     this.cancel.addEventListener('click', actions.cancel);
     sendOnEnter(this.input, actions.add);
@@ -71,6 +79,8 @@ export class Overlay {
     // the click handler needs.
     this.selectionButton.addEventListener('mousedown', (e) => e.preventDefault());
     this.selectionButton.addEventListener('click', () => this.selected && actions.selectComment(this.selected));
+    this.suggestButton.addEventListener('mousedown', (e) => e.preventDefault());
+    this.suggestButton.addEventListener('click', () => this.selected && actions.selectSuggest(this.selected));
 
     // Nothing to follow while nothing is drawn.
     const follow = () => (this.hovered || this.picked || this.markers.length || this.selected) && this.queue();
@@ -102,6 +112,8 @@ export class Overlay {
         : `Comment on ${draft.tag}`;
     this.heading.title = this.heading.textContent;
     this.input.value = '';
+    this.input.setAttribute('aria-label', 'Comment on this element');
+    this.input.removeAttribute('placeholder');
     this.input.readOnly = false;
     this.send.hidden = false;
     this.send.textContent = 'Add';
@@ -110,6 +122,23 @@ export class Overlay {
     this.layer.append(this.composer);
     this.draw();
     this.input.focus({ preventScroll: true });
+  }
+
+  /**
+   * Opens the box as `open` would, but to propose a replacement for the
+   * quoted selection rather than to say something about it: the textarea
+   * starts with the quote itself, for the reviewer to edit into the words
+   * they would put there instead, and `send` reads "Suggest" to say so.
+   */
+  openSuggest(el: Element, draft: PinDraft): void {
+    this.open(el, draft);
+    const quote = squeeze(draft.quote ?? '');
+    this.heading.textContent = `Suggest a replacement for "${quote}"`;
+    this.heading.title = this.heading.textContent;
+    this.input.value = draft.quote ?? '';
+    this.input.setAttribute('aria-label', 'Proposed replacement text');
+    this.input.setAttribute('placeholder', 'Replacement text…');
+    this.send.textContent = 'Suggest';
   }
 
   close(): void {
@@ -121,15 +150,19 @@ export class Overlay {
   /**
    * The box on an element that already has a comment, with its text in it: to
    * change, or, for a comment already sent, only to read. A sent comment is
-   * history the agent has acted on, so there is nothing to save.
+   * history the agent has acted on, so there is nothing to save. A suggested
+   * edit's body is generated from `pin.quote` and `pin.suggestion`, not
+   * written by the reviewer, so it is read-only too: changing the proposal
+   * means deleting the pin and suggesting again.
    */
   openExisting(el: Element, marker: Marker): void {
     this.open(el, marker.pin);
+    const locked = marker.sent || marker.pin.suggestion !== undefined;
     this.input.value = marker.body;
-    this.input.readOnly = marker.sent;
-    this.send.hidden = marker.sent;
+    this.input.readOnly = locked;
+    this.send.hidden = locked;
     this.send.textContent = 'Save';
-    this.cancel.textContent = marker.sent ? 'Close' : 'Cancel';
+    this.cancel.textContent = locked ? 'Close' : 'Cancel';
   }
 
   /** Hidden, all of it, while the session photographs the page. */
@@ -206,15 +239,15 @@ export class Overlay {
       el.style.left = `${Math.min(Math.max(rect.left + rect.width, 12), innerWidth - 12)}px`;
       el.style.top = `${rect.top}px`;
     }
-    // Read from the range, not the element, so the button follows the words
+    // Read from the range, not the element, so the buttons follow the words
     // themselves rather than jumping to wherever their ancestor's box is.
     const selectionRect = this.selected?.range.getBoundingClientRect();
-    this.selectionButton.hidden = !selectionRect || (!selectionRect.width && !selectionRect.height);
-    if (!this.selectionButton.hidden && selectionRect) {
-      const size = { width: this.selectionButton.offsetWidth, height: this.selectionButton.offsetHeight };
+    this.selectionButtons.hidden = !selectionRect || (!selectionRect.width && !selectionRect.height);
+    if (!this.selectionButtons.hidden && selectionRect) {
+      const size = { width: this.selectionButtons.offsetWidth, height: this.selectionButtons.offsetHeight };
       const at = placePopover(selectionRect, size, { width: innerWidth, height: innerHeight });
-      this.selectionButton.style.left = `${at.left}px`;
-      this.selectionButton.style.top = `${at.top}px`;
+      this.selectionButtons.style.left = `${at.left}px`;
+      this.selectionButtons.style.top = `${at.top}px`;
     }
   }
 }

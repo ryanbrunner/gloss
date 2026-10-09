@@ -55,7 +55,8 @@ export const SEED_COMMENTS = [
  */
 export const SEED_TARGETS: DemoTarget[] = [
   { selector: '.products > article:nth-of-type(1)', tag: 'article', text: 'Canvas tote $24.00' },
-  { selector: '#summary > p:nth-of-type(3)', tag: 'p', text: 'Total $43.20' },
+  // A suggested edit, so `&pins=2` shows one beside a plain comment-on-selection item.
+  { selector: '#summary > p:nth-of-type(3)', tag: 'p', text: 'Total $43.20', quote: '$43.20', suggestion: '$43.20 (incl. shipping)' },
   { selector: '.site-header > .cart', tag: 'a', text: 'Cart (2)' },
   { selector: '.products > article:nth-of-type(2) > p', tag: 'p', text: '$16.00' },
   { selector: '.products > article:nth-of-type(3)', tag: 'article', text: 'Linen apron $38.00' },
