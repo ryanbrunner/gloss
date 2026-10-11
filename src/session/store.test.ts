@@ -12,6 +12,8 @@ describe('CommentStore', () => {
       phase: 'reviewing',
       message: null,
       summary: null,
+      summaryRound: null,
+      live: false,
       comments: [],
     });
   });
@@ -255,6 +257,104 @@ describe('approving', () => {
     assert.throws(() => store.ready(null), /while it is approved/);
     assert.throws(() => store.approve(PAGE), /while it is approved/);
     assert.equal(store.verdict()?.approved, true);
+  });
+});
+
+describe('live mode', () => {
+  test('starts off, and a constructor can turn it on', () => {
+    assert.equal(new CommentStore().snapshot().live, false);
+    assert.equal(new CommentStore(() => 1000, true).snapshot().live, true);
+  });
+
+  test('a comment sends itself as soon as it is written, while reviewing', () => {
+    const store = new CommentStore(() => 1000, true);
+    store.add('one', PAGE);
+    const state = store.snapshot();
+    assert.equal(state.phase, 'submitted');
+    assert.equal(state.round, 2);
+    assert.deepEqual(state.comments[0], { id: 'c1', body: 'one', createdAt: 1000, page: PAGE, sentIn: 1 });
+    assert.equal(store.verdict()?.round, 1);
+  });
+
+  test('a comment written while the agent is busy only queues, and flushes once it is ready', () => {
+    const store = new CommentStore(() => 1000, true);
+    store.add('one', PAGE);
+    store.working(null);
+    store.add('written while busy', PAGE);
+    assert.equal(store.snapshot().phase, 'working');
+    assert.equal(store.snapshot().comments[1]?.sentIn, null);
+    store.ready('Did it');
+    const state = store.snapshot();
+    assert.equal(state.phase, 'submitted');
+    assert.equal(state.round, 3);
+    assert.equal(state.comments[1]?.sentIn, 2);
+    assert.equal(store.verdict()?.round, 2);
+  });
+
+  test('the summary survives an auto-submit flush, and clears once the reviewer submits for real', () => {
+    const store = new CommentStore(() => 1000, true);
+    store.add('one', PAGE);
+    store.working(null);
+    store.add('two', PAGE);
+    store.ready('Did it');
+    const flushed = store.snapshot();
+    assert.equal(flushed.summary, 'Did it');
+    assert.equal(flushed.summaryRound, 1);
+    store.working(null);
+    store.ready('Did more');
+    store.add('three', PAGE);
+    assert.deepEqual([store.snapshot().summary, store.snapshot().summaryRound], [null, null]);
+  });
+
+  test('ready with nothing unsent does not auto-submit', () => {
+    const store = new CommentStore(() => 1000, true);
+    store.add('one', PAGE);
+    store.working(null);
+    store.ready('Done');
+    const state = store.snapshot();
+    assert.equal(state.phase, 'reviewing');
+    assert.equal(state.round, 2);
+    assert.equal(store.verdict(), null);
+  });
+
+  test('setLive turns it on and off, and refuses once approved', () => {
+    const store = new CommentStore();
+    store.setLive(true);
+    assert.equal(store.snapshot().live, true);
+    store.setLive(false);
+    assert.equal(store.snapshot().live, false);
+    store.approve(PAGE);
+    assert.throws(() => store.setLive(true), /approved/);
+  });
+
+  test('turning live on while something is unsent sends it at once', () => {
+    const store = new CommentStore(() => 1000);
+    store.add('one', PAGE);
+    store.setLive(true);
+    const state = store.snapshot();
+    assert.equal(state.phase, 'submitted');
+    assert.equal(store.verdict()?.round, 1);
+  });
+
+  test('turning live on with nothing unsent does not submit', () => {
+    const store = new CommentStore();
+    store.setLive(true);
+    assert.equal(store.snapshot().phase, 'reviewing');
+    assert.equal(store.verdict(), null);
+  });
+
+  test('turning live on while the agent has the round leaves the queued comment for ready to flush', () => {
+    const store = new CommentStore();
+    store.add('one', PAGE);
+    store.submit(PAGE);
+    store.working(null);
+    store.add('two', PAGE);
+    store.setLive(true);
+    assert.equal(store.snapshot().phase, 'working');
+    assert.equal(store.snapshot().comments[1]?.sentIn, null);
+    store.ready(null);
+    assert.equal(store.snapshot().phase, 'submitted');
+    assert.equal(store.snapshot().comments[1]?.sentIn, 2);
   });
 });
 

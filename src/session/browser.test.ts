@@ -52,9 +52,16 @@ describe('handleRpc', () => {
       await assert.rejects(call(store, { method: 'submit' }, from), /only from the page under review/);
       await assert.rejects(call(store, { method: 'approve', discardUnsent: true }, from), /only from the page/);
       await assert.rejects(call(store, { method: 'add', body: 'x' }, from), /only from the page/);
+      await assert.rejects(call(store, { method: 'setLive', live: true }, from), /only from the page/);
       assert.equal((await call(store, { method: 'state' }, from)).comments.length, 1);
     }
     assert.equal(store.snapshot().phase, 'reviewing');
+  });
+
+  test('turns live mode on and off', async () => {
+    const store = new CommentStore();
+    assert.equal((await call(store, { method: 'setLive', live: true })).live, true);
+    assert.equal((await call(store, { method: 'setLive', live: false })).live, false);
   });
 
   test('adds a pinned comment with the screenshot the session took', async () => {

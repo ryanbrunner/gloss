@@ -143,3 +143,10 @@ Summarise for the user what changed across all the rounds.
 - More than one review from one directory: add `--name <n>` to every
   `gloss` command.
 - The verdict format is documented in `docs/verdict.md` in the Gloss repo.
+- The reviewer can turn on **Live** in the bar, or the session can be opened
+  with `gloss open --live`. It changes nothing about this loop: comments
+  can still arrive while you are `working`, they still wait for the next
+  `gloss wait`, and `round` still never repeats. The only difference you may
+  notice is that `gloss wait` can return the instant you run it right after
+  `gloss ready`, because a comment written while you were busy went out
+  automatically the moment you said you were ready.

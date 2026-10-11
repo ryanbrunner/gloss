@@ -31,6 +31,7 @@ export async function status(args: string[]): Promise<void> {
             statePath: ref.statePath,
             phase: round?.phase ?? null,
             round: round?.round ?? null,
+            live: round?.live ?? null,
           }
         : { running: false },
     );
@@ -38,6 +39,6 @@ export async function status(args: string[]): Promise<void> {
   if (!state) return note(`No Gloss session is running for ${ref.cwd}${ref.name ? ` (${ref.name})` : ''}`);
   print(`Gloss session running at ${sessionUrl(state)} (pid ${state.pid})`);
   if (page) print(`showing  ${page}`);
-  if (round) print(`round    ${round.round}, ${round.phase}`);
+  if (round) print(`round    ${round.round}, ${round.phase}${round.live ? ', live' : ''}`);
   print(`state    ${ref.statePath}`);
 }

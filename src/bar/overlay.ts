@@ -72,7 +72,7 @@ export class Overlay {
   }) {
     this.onMarker = actions.edit;
     this.layer.append(this.hoverBox, this.pickedBox, this.markerLayer, this.selectionButtons);
-    this.send.addEventListener('click', actions.add);
+    this.send.addEventListener('click', (e) => e.isTrusted && actions.add());
     this.cancel.addEventListener('click', actions.cancel);
     sendOnEnter(this.input, actions.add);
     // Without this, the mousedown before the click collapses the selection

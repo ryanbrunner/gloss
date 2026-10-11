@@ -198,8 +198,10 @@ try {
   await bar(page, '.bar').waitFor();
   console.log('round 2: only the two new comments, as round 2');
 
-  // A script in the page cannot submit or approve, by any route found.
+  // A script in the page cannot submit, approve or - since Add does what
+  // Submit does once live mode is on - add a comment, by any route found.
   await comment(page, 'Something to submit');
+  const before = (await roundState()).comments.length;
   // Plain script, as the page would run it (and out of reach of tsx's transform).
   const forged = (await page.evaluate(`(async () => {
     const approve = JSON.stringify({ method: 'approve', discardUnsent: true });
@@ -226,8 +228,11 @@ try {
       rewrite();
       return new RealPromise(executor);
     };
+    // A synthetic click on Add, and a synthetic Enter in the comment box:
+    // neither is trusted, so neither can do what a genuine one does.
     root.querySelector('textarea').value = 'sent past a hooked Map.prototype.get';
     root.querySelector('.add').click();
+    root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true }));
     await new RealPromise((r) => setTimeout(r, 300));
     Map.prototype.get = get;
     window.Promise = RealPromise;
@@ -236,20 +241,19 @@ try {
   })()`)) as { globals: string[]; error: string | null };
   assert.deepEqual(forged.globals, [], "neither the binding nor anything of Playwright's is on window");
   assert.equal(forged.error, '', 'the bar sent without complaint');
-  const afterForgery = await until('the comment sent past the hooks', async () => {
-    const state = await roundState();
-    return state.comments.some((c) => c.body === 'sent past a hooked Map.prototype.get') && state;
-  });
+  await sleep(300);
+  const afterForgery = await roundState();
   assert.equal(afterForgery.phase, 'reviewing', 'no submission or approval from the page');
   assert.equal(afterForgery.round, 3);
-  console.log('page script: no binding on window; clicks, and a hooked Map.get and Promise patching JSON, do nothing');
+  assert.equal(afterForgery.comments.length, before, 'a synthetic click on Add or Enter in the box adds nothing');
+  console.log('page script: no binding on window; clicks, a synthetic Enter, and a hooked Map.get and Promise patching JSON, do nothing');
 
   // Approve with an unsent comment: the prompt, Cancel, then discard and approve.
   await bar(page, '.bar > .approve').click();
-  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 2 unsent comments\?/);
+  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 1 unsent comment\?/);
   await bar(page, '.confirm button').filter({ hasText: 'Cancel' }).click();
   assert.ok(await bar(page, '.bar > .approve').isVisible());
-  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', 6]);
+  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', before]);
   const waiting3 = waitInBackground();
   await sleep(300);
   await bar(page, '.bar > .approve').click();
@@ -258,11 +262,49 @@ try {
   assert.deepEqual([approved.approved, approved.round, approved.comments], [true, 3, []]);
   const end = await roundState();
   assert.equal(end.phase, 'approved');
-  const discarded = ['Something to submit', 'sent past a hooked Map.prototype.get'];
-  assert.ok(!end.comments.some((c) => discarded.includes(c.body)), 'the discarded comments are gone');
+  assert.ok(!end.comments.some((c) => c.body === 'Something to submit'), 'the discarded comment is gone');
   assert.ok(end.comments.every((c) => c.sentIn !== null));
   await until('the approved status', async () => (await statusText(page)) === 'Approved');
-  console.log('approve: the prompt counts 2 unsent, Cancel keeps them, Discard & approve prints approved true with no comments');
+  console.log('approve: the prompt counts 1 unsent, Cancel keeps it, Discard & approve prints approved true with no comments');
+
+  assert.equal((await gloss(['close'])).code, 0);
+  await disconnect();
+
+  // Live mode: Add (or Enter) sends on its own, Submit is not shown, a
+  // comment made while Claude works only queues, and it flushes itself the
+  // moment `gloss ready` hands the round back - all with no Submit click.
+  assert.equal((await gloss(['open', `${base}/`, '--live'])).code, 0);
+  page = await windowPage();
+  await bar(page, '.bar').waitFor();
+  assert.equal(await bar(page, '.live').getAttribute('aria-pressed'), 'true', '--live starts the bar with Live already on');
+  assert.ok(!(await bar(page, '.submit').isVisible()), 'Submit is not shown while live');
+  const status = JSON.parse((await gloss(['status', '--json'])).stdout) as { live: boolean };
+  assert.equal(status.live, true, 'gloss status --json reports live mode');
+
+  await comment(page, 'Comment sent by itself');
+  const liveRound1 = verdictOf(await gloss(['wait']));
+  assert.deepEqual([liveRound1.round, liveRound1.comments.map((c) => c.body)], [1, ['Comment sent by itself']]);
+  console.log('live: Enter sent the comment on its own, and wait printed it with no Submit click');
+
+  assert.equal((await gloss(['working'])).code, 0);
+  await until('the working status', async () => (await statusText(page)) === 'Claude is working…');
+  await comment(page, 'Written while busy, in live mode');
+  assert.equal((await roundState()).comments.at(-1)?.sentIn, null, 'a comment made while Claude works only queues, live or not');
+  assert.ok(await bar(page, '.bar > .approve').isDisabled(), 'Approve stays off while Claude works, live or not');
+
+  assert.equal((await gloss(['ready', 'Flushed it'])).code, 0);
+  const liveRound2 = verdictOf(await gloss(['wait']));
+  assert.deepEqual([liveRound2.round, liveRound2.comments.map((c) => c.body)], [2, ['Written while busy, in live mode']]);
+  page = await windowPage();
+  await bar(page, '.bar').waitFor();
+  await until('the status to show the queued flush and the summary', async () => /Sent round 2.+Claude: Flushed it/.test(await statusText(page)));
+  console.log('live: the queued comment flushed itself the moment ready returned, with the summary still shown');
+
+  // A trusted click on Live turns it back off; Submit returns.
+  await bar(page, '.live').click();
+  assert.equal(await bar(page, '.live').getAttribute('aria-pressed'), 'false');
+  assert.ok(await bar(page, '.submit').isVisible(), 'Submit is back once Live is off');
+  console.log('live: a trusted click on Live turns it off, and Submit comes back');
 
   assert.equal((await gloss(['close'])).code, 0);
   await disconnect();

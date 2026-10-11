@@ -74,6 +74,10 @@ export interface RoundState {
   message: string | null;
   /** What the agent says it changed, from its last `ready` until the next round goes out. */
   summary: string | null;
+  /** The round `summary` is about, since `round` can move past it before the reviewer has seen it. */
+  summaryRound: number | null;
+  /** Whether a comment goes to the agent the moment it is written, rather than waiting for Submit. */
+  live: boolean;
   comments: Comment[];
 }
 
@@ -84,12 +88,18 @@ export class CommentStore {
   private phase: Phase = 'reviewing';
   private message: string | null = null;
   private summary: string | null = null;
+  private summaryRound: number | null = null;
   private pending: Verdict | null = null;
   private comments: Comment[] = [];
   private seq = 0;
   private listeners = new Set<Listener>();
+  /** The page the reviewer was last on, for a submit the store makes itself rather than the reviewer. */
+  private lastPage: string | null = null;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private live = false,
+  ) {}
 
   snapshot(): RoundState {
     return {
@@ -97,6 +107,8 @@ export class CommentStore {
       phase: this.phase,
       message: this.message,
       summary: this.summary,
+      summaryRound: this.summaryRound,
+      live: this.live,
       comments: this.comments.map(copy),
     };
   }
@@ -114,7 +126,11 @@ export class CommentStore {
     const comment: Comment = { id: `c${++this.seq}`, body: text, createdAt: this.now(), page, sentIn: null };
     if (pin) comment.pin = copyPin(pin);
     this.comments.push(comment);
-    this.changed();
+    this.lastPage = page;
+    // Live: the comment just written is its own round, sent at once rather
+    // than waiting for Submit.
+    if (this.live && this.phase === 'reviewing') this.submit(page);
+    else this.changed();
     return copy(comment);
   }
 
@@ -144,8 +160,14 @@ export class CommentStore {
     return copy(comment);
   }
 
-  /** Sends every comment not yet sent as this round, and starts the next. */
-  submit(page: string | null): Verdict {
+  /**
+   * Sends every comment not yet sent as this round, and starts the next.
+   * `keepSummary` leaves Claude's last summary in place, for the auto-submit
+   * `ready()` makes on a round that was only queued because it was busy: the
+   * reviewer has not seen that summary yet, so this submit must not be the
+   * thing that clears it.
+   */
+  submit(page: string | null, options: { keepSummary?: boolean } = {}): Verdict {
     this.expect('reviewing', 'submit');
     const unsent = this.unsent();
     if (!unsent.length) throw new Error('there are no new comments to submit');
@@ -164,7 +186,10 @@ export class CommentStore {
     };
     this.round++;
     this.phase = 'submitted';
-    this.summary = null;
+    if (!options.keepSummary) {
+      this.summary = null;
+      this.summaryRound = null;
+    }
     this.changed();
     return structuredClone(this.pending);
   }
@@ -200,11 +225,30 @@ export class CommentStore {
   /** The agent is done with the round; the reviewer has the next one. */
   ready(summary: string | null): void {
     this.expect(['submitted', 'working'], 'be marked ready');
+    const finishedRound = this.round - 1;
     this.phase = 'reviewing';
     this.message = null;
     this.summary = summary?.trim() || null;
+    this.summaryRound = this.summary ? finishedRound : null;
     this.pending = null;
-    this.changed();
+    // Live: anything written while the agent was busy goes out at once,
+    // rather than waiting on the reviewer to notice it is their move again.
+    // The summary just set is kept, so it is not lost in the same tick.
+    if (this.live && this.unsent().length) this.submit(this.lastPage, { keepSummary: true });
+    else this.changed();
+  }
+
+  /**
+   * Turns live mode on or off. Turning it on while the round is the
+   * reviewer's, with something already unsent, sends it at once: a
+   * deliberate side effect, not a silent one, since flipping the toggle is
+   * itself the reviewer's action.
+   */
+  setLive(live: boolean): void {
+    if (this.phase === 'approved') throw new Error('the review is approved; there is nothing more to comment on');
+    this.live = live;
+    if (live && this.phase === 'reviewing' && this.unsent().length) this.submit(this.lastPage);
+    else this.changed();
   }
 
   onChange(listener: Listener): () => void {

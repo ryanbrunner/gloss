@@ -46,10 +46,16 @@ export function icon(...paths: string[]): SVGSVGElement {
   return svg;
 }
 
-/** Enter sends what is in the box; Shift+Enter is a new line, and so is Enter part way through an IME composition. */
+/**
+ * Enter sends what is in the box; Shift+Enter is a new line, and so is Enter
+ * part way through an IME composition. Only a genuine keypress sends: the
+ * page shares this box's shadow DOM and can dispatch a synthetic Enter
+ * `keydown` on it, which in live mode would otherwise be the same as
+ * forging Submit.
+ */
 export function sendOnEnter(box: HTMLTextAreaElement, send: () => void): void {
   box.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    if (!e.isTrusted || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     e.preventDefault();
     send();
   });

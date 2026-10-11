@@ -16,6 +16,8 @@ hand what you wrote to Claude.
 it. The reviewer writes comments in the bar and presses **Submit** to send
 them to Claude as a round. Claude applies them and the window reloads with its
 summary of what changed. This repeats until the reviewer presses **Approve**.
+With **Live** on, each comment goes to Claude the moment it is written,
+instead of waiting for Submit.
 
 Gloss never fixes anything itself. It is the channel between the reviewer and
 whatever runs Claude (Claude Code, or Reeve). The agent drives the session
@@ -68,7 +70,7 @@ with a summary, and waits again, until you approve.
 ## Commands
 
 ```
-gloss open <url> [--name N]    show <url> in the Gloss window, starting a session if there is none
+gloss open <url> [--name N] [--live]   show <url> in the Gloss window, starting a session if there is none
 gloss status [--name N] [--json]   exit 0 and say where the session is and its phase, or exit 1 if there is none
 gloss close [--name N]         end the session and close its window
 gloss install-chromium [--with-deps]   download the Chromium Gloss drives, once
@@ -93,6 +95,12 @@ on). Approve ends it (**approved**).
 `gloss open` returns as soon as the window is up (within 15 seconds) and
 prints the session's address. Run it again from the same directory and it
 moves the same window to the new URL. Closing the window ends the session too.
+
+`--live` starts the session with the bar's **Live** control already on:
+comments go to Claude as they are written rather than waiting for Submit.
+Run `gloss open --live` again against a session already up, and it turns live
+mode on there too. It only ever turns live mode on; the bar's own **Live**
+control is how a reviewer turns it back off.
 
 There is one session per working directory. `--name` gives a directory more
 than one.
@@ -120,11 +128,12 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 | Route | |
 | --- | --- |
 | `GET /api/health` | `{ok, pid, url}`: the page the window is on now |
-| `GET /api/state` | `{round, phase, message, summary, comments: [{id, body, createdAt, page, sentIn, pin?}]}` |
+| `GET /api/state` | `{round, phase, message, summary, summaryRound, live, comments: [{id, body, createdAt, page, sentIn, pin?}]}` |
 | `GET /api/verdict?wait=N` | the verdict, or `{pending: true}` after N seconds (at most 30); 409 while working, 410 once the session is ending |
 | `POST /api/working` | `{message}`: the agent has the round |
 | `POST /api/ready` | `{summary}`: the agent is done; reloads every page |
 | `POST /api/navigate` | `{url}`: move the window |
+| `POST /api/live` | `{live}`: turns live mode on or off; sends anything already unsent if it turns on while the round is the reviewer's |
 | `POST /api/close` | end the session |
 
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
@@ -132,7 +141,9 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 `null` while it is unsent. A pinned comment's `pin` has the element's `selector`,
 `tag`, `text`, `box` and the `viewport`, the path of its `screenshot`, `quote`
 when it was made on a selection, and `suggestion` when it proposed a
-replacement for the quote.
+replacement for the quote. `live` is whether a comment is sent to the agent
+as it is written; `summaryRound` is the round `summary` is about, since
+`round` can move past it before the reviewer has seen it.
 
 ## The bar
 
@@ -164,6 +175,14 @@ replacement for the quote.
   round N", dimmed and read-only, so you can check what was asked.
 - **Submit** sends the unsent comments as a round. It is disabled when there
   is nothing new, and while the round is with Claude.
+- **Live**, beside the tools, turns live mode on or off: with it on, a
+  comment goes to Claude the instant it is written (pressing Enter or Add is
+  enough; there is nothing for Submit to do, so it is hidden). A comment
+  written while Claude has the round still just adds to the list, as it
+  always did, and goes out the moment `gloss ready` hands the round back.
+  Approve stays disabled for the whole time the round is `submitted` or
+  `working`, live or not. Turning Live on with something already unsent
+  sends it at once.
 - **Approve** ends the review. With unsent comments, it asks first, in the
   bar: "Approve and discard N unsent comments?" **Discard & approve** deletes
   them for good (they never reach Claude, and there is no undo); **Cancel**
@@ -187,11 +206,14 @@ replacement for the quote.
   to approve. The bar's script runs in an isolated world: it shares the
   page's DOM but none of its JavaScript, and only that world can reach the
   session. Nothing the page patches (`JSON`, `Map`, `Promise`, a prototype)
-  is on the path a call takes. Submit, Approve and a comment's page link act
-  only on trusted clicks, so the page clicking them through the shadow root
-  does nothing, and the session refuses changes from frames and from pages
-  that are not http or https. `scripts/spikes/loop-check.ts` tries each of
-  these from the page.
+  is on the path a call takes. Submit, Add, Live, Approve and a comment's page
+  link act only on trusted clicks, and Enter in the comment box or the
+  pinned-comment box only on a trusted keydown, so the page clicking or
+  dispatching a synthetic Enter through the shadow root does nothing; in live
+  mode, where Add does what Submit used to, that is what stops the page from
+  injecting a comment straight into Claude's next round. The session also
+  refuses changes from frames and from pages that are not http or https.
+  `scripts/spikes/loop-check.ts` tries each of these from the page.
 
 ### Known gaps
 
@@ -292,6 +314,8 @@ same elements; both take numbers, since a selector's `#` would end the query:
 | `/?gloss&select&pick=2` | Select mode, commenting on the order total |
 | `/?gloss&seed=3&pins=3` | three comments pinned to storefront elements, with markers |
 | `/?gloss&sent=2&seed=1&pins=3` | two sent pins, dimmed, beside a new one |
+| `/?gloss&live&phase=working&msg=…&seed=1&list` | live mode, Claude working, a comment queued |
+| `/?gloss&live&sent=2&summary=…` | live mode, idle after a round, Approve available |
 | `/?fixed` | a `position: fixed` header |
 | `/?fullheight` | an app shell sized to `100vh`, the shop scrolling inside it |
 | `/?csp` | served with a strict Content-Security-Policy |

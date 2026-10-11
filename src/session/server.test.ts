@@ -217,6 +217,22 @@ describe('working and ready', () => {
   });
 });
 
+describe('live mode', () => {
+  test('turns it on and off, and sends anything unsent when turning it on', async () => {
+    const s = session();
+    const app = createApp(s);
+    s.store.add('one');
+    assert.deepEqual(await (await post(app, '/api/live', { live: true })).json(), { ok: true, live: true });
+    assert.equal(s.store.snapshot().phase, 'submitted');
+    assert.deepEqual(await (await post(app, '/api/live', { live: false })).json(), { ok: true, live: false });
+  });
+
+  test('refuses a body with no boolean', async () => {
+    const res = await post(createApp(session()), '/api/live', {});
+    assert.equal(res.status, 400);
+  });
+});
+
 describe('the server', () => {
   test('serves on a port the OS picked, at 127.0.0.1', async () => {
     const server = await startServer(createApp(session()));
