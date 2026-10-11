@@ -90,6 +90,12 @@ describe('renderPage', () => {
     assert.deepEqual([idle.phase, idle.live, idle.comments.at(-1)?.sentIn], ['submitted', true, 2]);
   });
 
+  test('&live&phase=approved discards the seeded unsent comment rather than auto-submitting it first', () => {
+    const approved = demoStore(demoOptions(q('live&phase=approved&sent=2&seed=1')).round).snapshot();
+    assert.equal(approved.phase, 'approved');
+    assert.ok(!approved.comments.some((c) => c.sentIn === null));
+  });
+
   test('&pins=N pins the first N seeded comments, sent ones first, and no more than there are', () => {
     assert.equal(SEED_TARGETS.length, SEED_COMMENTS.length);
     const { round } = mounted(renderPage(HTML, q('gloss&sent=2&seed=1&pins=3'), '').html);

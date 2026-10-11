@@ -178,7 +178,11 @@ export function demoStore(seed: DemoRound, page: string | null = null): CommentS
   // After the sent history, so it never reorders the seeded "two comments per
   // round" grouping above; before the trailing unsent ones, so they queue or
   // auto-submit exactly as a real comment written with live already on would.
-  if (seed.live) store.setLive(true);
+  // Not for &phase=approved: live would auto-submit the seeded unsent
+  // comments on the spot, and the approve() below would then find the round
+  // already away with the agent rather than the reviewer's to approve. The
+  // Live control is hidden once approved anyway, so there is nothing to show.
+  if (seed.live && seed.phase !== 'approved') store.setLive(true);
   for (const body of seed.comments ?? []) store.add(body, page, pin());
   if (seed.phase === 'approved') store.approve(page, { discardUnsent: true });
   return store;
