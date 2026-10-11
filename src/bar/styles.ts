@@ -147,6 +147,7 @@ button:disabled, textarea:disabled { opacity: 0.45; cursor: not-allowed; }
 .toggle[aria-expanded="true"] .caret { display: inline-block; }
 .spacer { flex: 1; }
 .submit, .send { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
+.live[aria-pressed="true"] { color: ${SKY}; border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.08); }
 .approve { color: ${EMERALD}; border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.07); }
 .error { color: #f87171; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .status {

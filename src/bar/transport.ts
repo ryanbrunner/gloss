@@ -15,6 +15,8 @@ export interface Transport {
   submit(): Promise<RoundState>;
   /** Refused while there are unsent comments, unless `discardUnsent` says to drop them. */
   approve(discardUnsent: boolean): Promise<RoundState>;
+  /** Turns live mode on or off: a comment sent to the agent as it is written, rather than on Submit. */
+  setLive(live: boolean): Promise<RoundState>;
   /** Changes made somewhere else: another tab, or the agent through the CLI. */
   subscribe(listener: (state: RoundState) => void): void;
 }
@@ -26,7 +28,8 @@ export type RpcCall =
   | { method: 'remove'; id: string }
   | { method: 'edit'; id: string; body: string }
   | { method: 'submit' }
-  | { method: 'approve'; discardUnsent: boolean };
+  | { method: 'approve'; discardUnsent: boolean }
+  | { method: 'setLive'; live: boolean };
 
 /** A call as it goes down the binding, in JSON: numbered, so its answer finds its way back. */
 export interface RpcRequest {
@@ -90,6 +93,7 @@ export function bindingTransport(): Transport {
     edit: (id, body) => call({ method: 'edit', id, body }),
     submit: () => call({ method: 'submit' }),
     approve: (discardUnsent) => call({ method: 'approve', discardUnsent }),
+    setLive: (live) => call({ method: 'setLive', live }),
     subscribe: (listener) => listeners.push(listener),
   };
 }
@@ -105,6 +109,8 @@ export interface DemoRound {
   summary?: string;
   /** The elements the first comments are pinned to, the sent ones first. */
   targets?: DemoTarget[];
+  /** Starts the demo round with the Live control already on. */
+  live?: boolean;
 }
 
 /** Enough of a pin for the demo to find its element by, and the fields a comment-on-selection or a suggestion carries. */
@@ -130,6 +136,7 @@ export function memoryTransport(seed: DemoRound = {}): Transport {
     edit: (id, body) => act(() => store.edit(id, body)),
     submit: () => act(() => store.submit(page())),
     approve: (discardUnsent) => act(() => store.approve(page(), { discardUnsent })),
+    setLive: (live) => act(() => store.setLive(live)),
     // One page, one store: nothing else can change it.
     subscribe: () => {},
   };
@@ -168,6 +175,10 @@ export function demoStore(seed: DemoRound, page: string | null = null): CommentS
     else if (seed.phase === 'working') store.working(seed.message ?? null);
     else if (seed.phase !== 'submitted') store.ready(seed.summary ?? null);
   }
+  // After the sent history, so it never reorders the seeded "two comments per
+  // round" grouping above; before the trailing unsent ones, so they queue or
+  // auto-submit exactly as a real comment written with live already on would.
+  if (seed.live) store.setLive(true);
   for (const body of seed.comments ?? []) store.add(body, page, pin());
   if (seed.phase === 'approved') store.approve(page, { discardUnsent: true });
   return store;

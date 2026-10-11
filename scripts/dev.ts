@@ -19,6 +19,7 @@
  *   &pins=N   pin the first N of those comments, sent ones first, to SEED_TARGETS
  *   &select   start in Select mode
  *   &pick=N   start in Select mode with SEED_TARGETS' Nth (from 1) picked and the comment box open
+ *   &live     start with the Live control already on
  *   ?fixed    a header that is position: fixed rather than sticky
  *   ?fullheight
  *             an app shell sized to 100vh, with the products scrolling
@@ -92,6 +93,7 @@ export function demoOptions(query: URLSearchParams): DemoOptions {
       ...(query.get('msg') ? { message: query.get('msg')! } : {}),
       ...(query.get('summary') ? { summary: query.get('summary')! } : {}),
       ...(pinCount ? { targets: SEED_TARGETS.slice(0, pinCount) } : {}),
+      ...(query.has('live') ? { live: true } : {}),
     },
     listOpen: query.has('list'),
     confirmOpen: query.has('confirm'),
@@ -190,5 +192,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`With the demo bar:  http://127.0.0.1:${actual}/?gloss&seed=2&list`);
     console.log(`Claude working:     http://127.0.0.1:${actual}/?gloss&sent=2&phase=working&msg=Tightening%20the%20header`);
     console.log(`Pinned comments:    http://127.0.0.1:${actual}/?gloss&seed=3&pins=3`);
+    console.log(`Live, Claude busy:  http://127.0.0.1:${actual}/?gloss&live&phase=working&msg=Tightening%20the%20header&seed=1&list`);
+    console.log(`Live, Approve:      http://127.0.0.1:${actual}/?gloss&live&sent=2&summary=Moved%20shipping%20above%20the%20total`);
   });
 }

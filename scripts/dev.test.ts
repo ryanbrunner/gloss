@@ -82,12 +82,25 @@ describe('renderPage', () => {
     assert.deepEqual(pick(phase('phase=approved&sent=2')), { round: 2, phase: 'approved', sent: [1, 1] });
   });
 
+  test('&live queues a seeded unsent comment while Claude is busy, and sends one at once while idle', () => {
+    const phase = (s: string) => demoStore(demoOptions(q(s)).round).snapshot();
+    const busy = phase('live&phase=working&msg=On%20it&seed=1');
+    assert.deepEqual([busy.phase, busy.live, busy.comments.at(-1)?.sentIn], ['working', true, null]);
+    const idle = phase('live&sent=2&seed=1');
+    assert.deepEqual([idle.phase, idle.live, idle.comments.at(-1)?.sentIn], ['submitted', true, 2]);
+  });
+
   test('&pins=N pins the first N seeded comments, sent ones first, and no more than there are', () => {
     assert.equal(SEED_TARGETS.length, SEED_COMMENTS.length);
     const { round } = mounted(renderPage(HTML, q('gloss&sent=2&seed=1&pins=3'), '').html);
     assert.deepEqual(round, { sent: SEED_COMMENTS.slice(0, 2), comments: SEED_COMMENTS.slice(2, 3), targets: SEED_TARGETS.slice(0, 3) });
     assert.equal(mounted(renderPage(HTML, q('gloss&seed=2&pins=9'), '').html).round.targets.length, 2);
     assert.equal(mounted(renderPage(HTML, q('gloss&pins=3'), '').html).round.targets, undefined);
+  });
+
+  test('&live starts with the Live control already on, and is absent from the shape otherwise', () => {
+    assert.equal(mounted(renderPage(HTML, q('gloss&live'), '').html).round.live, true);
+    assert.equal('live' in mounted(renderPage(HTML, q('gloss'), '').html).round, false);
   });
 
   test('&select starts in Select mode, and &pick=N with the Nth target picked', () => {

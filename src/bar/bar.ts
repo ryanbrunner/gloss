@@ -26,10 +26,13 @@ import { fitViewportUnits } from './viewport.js';
  * selected words kept as the comment's quote, or, with a second button, a
  * proposed replacement for them kept as its suggestion.
  *
- * Submit, Approve, the approve confirmation and a comment's page link act
- * only on a click the browser made (`isTrusted`). The page under review can
- * reach into the shadow root, and its `button.click()` must not approve
- * anything, or send the window wherever it likes.
+ * Submit, Add, Live, Approve, the approve confirmation and a comment's page
+ * link act only on a click the browser made (`isTrusted`), and Enter in the
+ * comment box or the overlay's only on a trusted keydown. The page under
+ * review can reach into the shadow root, and its `button.click()` or a
+ * synthetic Enter must not approve anything, send the window wherever it
+ * likes, or, in live mode, inject a comment straight into Claude's next
+ * round the way a forged Add now can.
  * `document.execCommand` edits whatever has focus, including the comment
  * box, so the reviewer's own trusted Enter would send whatever it put
  * there; `dom.ts`'s `createValueGuard` keeps the box's `value` to what the
@@ -124,7 +127,7 @@ class Bar {
   readonly host = document.createElement(HOST_TAG);
   private readonly root = this.host.attachShadow({ mode: 'open' });
   private readonly popoverSupported = typeof this.host.showPopover === 'function';
-  private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, comments: [] };
+  private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, summaryRound: null, live: false, comments: [] };
   private listOpen: boolean;
 
   private readonly bar = h('div', { class: 'bar', role: 'toolbar', 'aria-label': 'Gloss' });
@@ -169,6 +172,7 @@ class Bar {
   private readonly status = h('span', { class: 'status', role: 'status' });
   private readonly add = h('button', { class: 'add', type: 'button' }, 'Add');
   private readonly submit = h('button', { class: 'submit', type: 'button' }, 'Submit');
+  private readonly live = h('button', { class: 'live', type: 'button', 'aria-pressed': 'false' }, 'Live');
   private readonly approve = h('button', { class: 'approve', type: 'button' }, 'Approve');
   private readonly confirmCount = h('span');
   private readonly confirmYes = h('button', { class: 'approve', type: 'button' }, 'Discard & approve');
@@ -217,6 +221,7 @@ class Bar {
       this.error,
       h('span', { class: 'spacer' }),
       this.status,
+      this.live,
       this.submit,
       this.approve,
       this.confirm,
@@ -225,10 +230,11 @@ class Bar {
 
     this.guardValue(this.input);
     this.guardValue(this.overlay.input);
-    this.add.addEventListener('click', () => this.addComment());
+    this.add.addEventListener('click', (e) => e.isTrusted && this.addComment());
     sendOnEnter(this.input, () => this.addComment());
     this.toggle.addEventListener('click', () => this.setListOpen(!this.listOpen));
     this.submit.addEventListener('click', (e) => e.isTrusted && this.act(() => this.transport.submit()));
+    this.live.addEventListener('click', (e) => e.isTrusted && this.act(() => this.transport.setLive(!this.state.live)));
     this.approve.addEventListener('click', (e) => {
       if (!e.isTrusted) return;
       // Unsent comments would go nowhere: say so, and let the reviewer choose.
@@ -544,7 +550,13 @@ class Bar {
     this.submit.disabled = !reviewing || !unsent.length;
     this.submit.title = !reviewing ? '' : unsent.length ? `Send ${plural(unsent.length, 'comment')} to Claude` : 'Add a comment to submit';
     this.approve.disabled = !reviewing;
-    this.submit.hidden = this.approve.hidden = this.confirming || state.phase === 'approved';
+    this.live.setAttribute('aria-pressed', String(state.live));
+    this.live.disabled = state.phase === 'approved';
+    this.live.title = state.live ? 'Comments go to Claude as soon as they are written' : 'Send each comment to Claude as soon as it is written';
+    this.approve.hidden = this.live.hidden = this.confirming || state.phase === 'approved';
+    // Live mode sends what Submit would, the moment a comment is made: there
+    // is nothing left for Submit to do.
+    this.submit.hidden = this.approve.hidden || state.live;
     this.confirm.hidden = !this.confirming;
     this.bar.classList.toggle('confirming', this.confirming);
     this.confirmCount.textContent = `${plural(unsent.length, 'unsent comment')}`;
@@ -595,7 +607,7 @@ class Bar {
   private items(state: RoundState, unsent: Comment[]): HTMLLIElement[] {
     const items: HTMLLIElement[] = [];
     if (state.summary) {
-      items.push(h('li', { class: 'summary' }, h('span', { class: 'label' }, `Claude, after round ${state.round - 1}`), state.summary));
+      items.push(h('li', { class: 'summary' }, h('span', { class: 'label' }, `Claude, after round ${state.summaryRound}`), state.summary));
     }
     const numbers = pinNumbers(state.comments);
     items.push(...unsent.map((c) => this.item(c, numbers)));
@@ -662,8 +674,13 @@ class Bar {
 export function statusText(state: RoundState): [text: string, title: string] {
   const sent = state.round - 1;
   switch (state.phase) {
-    case 'submitted':
-      return [`Sent round ${sent}, waiting for Claude`, ''];
+    case 'submitted': {
+      const text = `Sent round ${sent}, waiting for Claude`;
+      // In live mode a queued comment can flush straight to `submitted` the
+      // instant `ready` returns it, with no `reviewing` tick in between for
+      // the reviewer to see the summary in; this is where it is said instead.
+      return state.summary ? [`${text}. Claude: ${state.summary}`, state.summary] : [text, ''];
+    }
     case 'working':
       return state.message ? [`Claude is working: ${state.message}`, state.message] : ['Claude is working…', ''];
     case 'approved':
