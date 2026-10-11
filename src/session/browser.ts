@@ -74,6 +74,7 @@ const rpcCall = z.discriminatedUnion('method', [
   z.object({ method: z.literal('edit'), id: z.string(), body: z.string().max(20_000) }),
   z.object({ method: z.literal('submit') }),
   z.object({ method: z.literal('approve'), discardUnsent: z.boolean() }),
+  z.object({ method: z.literal('setLive'), live: z.boolean() }),
 ]);
 
 /** Takes a picture of a pinned element, and says where it put it, or nothing if it could not. */
@@ -116,6 +117,7 @@ export async function handleRpc(
   if (data.method === 'edit') store.edit(data.id, data.body);
   if (data.method === 'submit') store.submit(from.url);
   if (data.method === 'approve') store.approve(from.url, { discardUnsent: data.discardUnsent });
+  if (data.method === 'setLive') store.setLive(data.live);
   return store.snapshot();
 }
 
