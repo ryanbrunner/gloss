@@ -11,11 +11,14 @@ import { VERSION } from './version.js';
 
 const USAGE = `Usage: gloss <command> [options]
 
-  gloss open <url> [--name N]
+  gloss open <url> [--name N] [--live]
       Show <url> in a Chromium window with the Gloss bar across the top, and
       return once it is up. The window stays open, as a session, until it is
       closed. Run again from the same directory, it moves that window to
-      <url> rather than opening another.
+      <url> rather than opening another. --live starts the session with the
+      bar's Live control already on, so a comment goes to the agent as soon
+      as it is written rather than waiting for Submit; the bar's own control
+      turns it back off.
   gloss status [--name N] [--json]
       Whether this directory has a session: exit 0 if it does, 1 if not.
   gloss close [--name N]

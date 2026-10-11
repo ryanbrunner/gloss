@@ -23,7 +23,7 @@ export async function runSession(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() =>
     parseArgs({
       args,
-      options: { cwd: { type: 'string' }, name: { type: 'string' }, url: { type: 'string' } },
+      options: { cwd: { type: 'string' }, name: { type: 'string' }, url: { type: 'string' }, live: { type: 'boolean' } },
     }),
   );
   if (!values.cwd || !values.url) throw usageError('__session is started by `gloss open`, with --cwd and --url');
@@ -32,7 +32,7 @@ export async function runSession(args: string[]): Promise<void> {
   // The pid's own, so a session going away late cannot take a newer one's pictures with it.
   const shotsDir = join(ref.shotsPath, String(process.pid));
   const url = values.url;
-  const store = new CommentStore();
+  const store = new CommentStore(Date.now, values.live ?? false);
   const waits = new Waits();
   const token = randomBytes(24).toString('base64url');
   let browser: SessionBrowser | null = null;

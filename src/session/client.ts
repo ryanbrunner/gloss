@@ -68,4 +68,6 @@ export const api = {
     request<{ ok: true; phase: Phase }>(state, '/api/working', { method: 'POST', body: JSON.stringify({ message }) }),
   ready: (state: SessionState, summary: string | null) =>
     request<{ ok: true; phase: Phase }>(state, '/api/ready', { method: 'POST', body: JSON.stringify({ summary }) }),
+  live: (state: SessionState, live: boolean) =>
+    request<{ ok: true; live: boolean }>(state, '/api/live', { method: 'POST', body: JSON.stringify({ live }) }),
 };

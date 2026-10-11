@@ -28,14 +28,15 @@ const BIN = fileURLToPath(new URL('../../bin/gloss.js', import.meta.url));
  */
 export async function open(args: string[]): Promise<void> {
   const { values, positionals } = parseOrUsage(() =>
-    parseArgs({ args, allowPositionals: true, options: { name: { type: 'string' } } }),
+    parseArgs({ args, allowPositionals: true, options: { name: { type: 'string' }, live: { type: 'boolean' } } }),
   );
   if (positionals.length !== 1) throw usageError('open needs one url');
   const url = normalizeUrl(positionals[0]!);
   const ref = sessionRef(process.cwd(), values.name ?? '');
+  const live = values.live ?? false;
 
-  const live = await liveSession(ref);
-  if (live) return reuse(live, url);
+  const running = await liveSession(ref);
+  if (running) return reuse(running, url, live);
 
   const missing = chromiumMissing();
   if (missing) throw new CliError(missing);
@@ -45,8 +46,8 @@ export async function open(args: string[]): Promise<void> {
   try {
     // Whoever held the lock may have started the session this one wanted.
     const started = await liveSession(ref);
-    if (started) return reuse(started, url);
-    report(await start(ref, url), url, false);
+    if (started) return reuse(started, url, live);
+    report(await start(ref, url, live), url, false);
   } finally {
     release();
   }
@@ -65,8 +66,11 @@ export function normalizeUrl(raw: string): string {
   return url.href;
 }
 
-async function reuse(state: SessionState, url: string): Promise<void> {
+async function reuse(state: SessionState, url: string, live: boolean): Promise<void> {
   await api.navigate(state, url);
+  // --live only ever turns it on; an already-running session can't be given
+  // a different argv, so the running one's own toggle is reached over HTTP.
+  if (live) await api.live(state, true);
   report(state, url, true);
 }
 
@@ -75,10 +79,19 @@ function report(state: SessionState, url: string, reused: boolean): void {
   print(`session  ${sessionUrl(state)} (pid ${state.pid})`);
 }
 
-async function start(ref: SessionRef, url: string): Promise<SessionState> {
+async function start(ref: SessionRef, url: string, live: boolean): Promise<SessionState> {
   mkdirSync(dirname(ref.logPath), { recursive: true });
   const log = openSync(ref.logPath, 'a');
-  const args = [BIN, '__session', '--cwd', ref.cwd, '--url', url, ...(ref.name ? ['--name', ref.name] : [])];
+  const args = [
+    BIN,
+    '__session',
+    '--cwd',
+    ref.cwd,
+    '--url',
+    url,
+    ...(ref.name ? ['--name', ref.name] : []),
+    ...(live ? ['--live'] : []),
+  ];
   const child = spawn(process.execPath, args, { cwd: ref.cwd, detached: true, stdio: ['ignore', log, log] });
   closeSync(log);
 

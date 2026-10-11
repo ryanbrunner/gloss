@@ -84,6 +84,7 @@ export class Waits {
 const navigateBody = z.object({ url: z.url({ protocol: /^https?$/ }) });
 const workingBody = z.object({ message: z.string().max(2_000).nullish() });
 const readyBody = z.object({ summary: z.string().max(20_000).nullish() });
+const liveBody = z.object({ live: z.boolean() });
 
 export function createApp(session: SessionApi): Hono {
   const app = new Hono();
@@ -141,6 +142,20 @@ export function createApp(session: SessionApi): Hono {
     }
     await session.reload();
     return c.json({ ok: true, phase: session.store.snapshot().phase });
+  });
+
+  // `gloss open --live` against a session already running: argv cannot be
+  // changed after the fact, so it reaches the same `setLive` the bar's own
+  // toggle calls, over HTTP instead of the RPC binding.
+  app.post('/api/live', async (c) => {
+    const parsed = liveBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: 'live takes a boolean `live`' }, 400);
+    try {
+      session.store.setLive(parsed.data.live);
+    } catch (e) {
+      return c.json({ error: firstLine(e) }, 409);
+    }
+    return c.json({ ok: true, live: session.store.snapshot().live });
   });
 
   app.post('/api/close', (c) => {
