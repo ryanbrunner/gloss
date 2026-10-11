@@ -43,7 +43,8 @@ The review loop, for the agent:
       message, and the reviewer cannot submit or approve.
   gloss ready [summary] [--name N]
       Say the agent is done. The window reloads, the bar shows the summary,
-      and the next round is the reviewer's.
+      and the next round is the reviewer's. In live mode, comments written
+      while the agent worked go out at once, as the next round.
 
 --name   more than one session from one directory: each name is a session of
          its own.
