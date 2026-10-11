@@ -270,6 +270,45 @@ try {
   assert.equal((await gloss(['close'])).code, 0);
   await disconnect();
 
+  // Live mode: Add (or Enter) sends on its own, Submit is not shown, a
+  // comment made while Claude works only queues, and it flushes itself the
+  // moment `gloss ready` hands the round back - all with no Submit click.
+  assert.equal((await gloss(['open', `${base}/`, '--live'])).code, 0);
+  page = await windowPage();
+  await bar(page, '.bar').waitFor();
+  assert.equal(await bar(page, '.live').getAttribute('aria-pressed'), 'true', '--live starts the bar with Live already on');
+  assert.ok(!(await bar(page, '.submit').isVisible()), 'Submit is not shown while live');
+  const status = JSON.parse((await gloss(['status', '--json'])).stdout) as { live: boolean };
+  assert.equal(status.live, true, 'gloss status --json reports live mode');
+
+  await comment(page, 'Comment sent by itself');
+  const liveRound1 = verdictOf(await gloss(['wait']));
+  assert.deepEqual([liveRound1.round, liveRound1.comments.map((c) => c.body)], [1, ['Comment sent by itself']]);
+  console.log('live: Enter sent the comment on its own, and wait printed it with no Submit click');
+
+  assert.equal((await gloss(['working'])).code, 0);
+  await until('the working status', async () => (await statusText(page)) === 'Claude is working…');
+  await comment(page, 'Written while busy, in live mode');
+  assert.equal((await roundState()).comments.at(-1)?.sentIn, null, 'a comment made while Claude works only queues, live or not');
+  assert.ok(await bar(page, '.bar > .approve').isDisabled(), 'Approve stays off while Claude works, live or not');
+
+  assert.equal((await gloss(['ready', 'Flushed it'])).code, 0);
+  const liveRound2 = verdictOf(await gloss(['wait']));
+  assert.deepEqual([liveRound2.round, liveRound2.comments.map((c) => c.body)], [2, ['Written while busy, in live mode']]);
+  page = await windowPage();
+  await bar(page, '.bar').waitFor();
+  await until('the status to show the queued flush and the summary', async () => /Sent round 2.+Claude: Flushed it/.test(await statusText(page)));
+  console.log('live: the queued comment flushed itself the moment ready returned, with the summary still shown');
+
+  // A trusted click on Live turns it back off; Submit returns.
+  await bar(page, '.live').click();
+  assert.equal(await bar(page, '.live').getAttribute('aria-pressed'), 'false');
+  assert.ok(await bar(page, '.submit').isVisible(), 'Submit is back once Live is off');
+  console.log('live: a trusted click on Live turns it off, and Submit comes back');
+
+  assert.equal((await gloss(['close'])).code, 0);
+  await disconnect();
+
   // No session: exit 1, nothing on stdout.
   const none = await gloss(['wait']);
   assert.deepEqual([none.code, none.stdout], [1, '']);
