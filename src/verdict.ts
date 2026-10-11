@@ -30,7 +30,8 @@ export const verdictCommentSchema = z
       .describe(
         'What a pinned comment points at, and null for a general comment: the element\'s `url`, a CSS ' +
           '`selector` that matched it, its `tag`, visible `text`, `box` and the `viewport` it was measured in, ' +
-          'the `quote` the reviewer selected, and a `screenshot` of it. The screenshot is a path belonging to ' +
+          'the `quote` the reviewer selected, the `suggestion` they proposed in its place when they suggested ' +
+          'an edit rather than commenting, and a `screenshot` of it. The screenshot is a path belonging to ' +
           'the session that wrote the verdict, and it is deleted when that session stops. More fields may be ' +
           'added, so read the ones you know.',
       ),

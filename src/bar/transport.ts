@@ -107,8 +107,8 @@ export interface DemoRound {
   targets?: DemoTarget[];
 }
 
-/** Enough of a pin for the demo to find its element by. */
-export type DemoTarget = Pick<Pin, 'selector' | 'tag' | 'text'>;
+/** Enough of a pin for the demo to find its element by, and the fields a comment-on-selection or a suggestion carries. */
+export type DemoTarget = Pick<Pin, 'selector' | 'tag' | 'text' | 'quote' | 'suggestion'>;
 
 /**
  * The demo page's transport: the same store the session uses, kept in the

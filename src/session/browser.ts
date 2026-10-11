@@ -64,6 +64,7 @@ const pinDraft = z.strictObject({
   box,
   viewport: z.object({ width: z.number().min(0), height: z.number().min(0) }),
   quote: z.string().max(4_000).optional(),
+  suggestion: z.string().max(4_000).optional(),
 });
 
 const rpcCall = z.discriminatedUnion('method', [

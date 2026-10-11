@@ -93,6 +93,7 @@ the screen can find the code that draws it:
     "box": { "x": 900, "y": 300, "width": 200, "height": 20 },
     "viewport": { "width": 1280, "height": 800 },
     "quote": "$43.20",
+    "suggestion": "$43.20 (incl. shipping)",
     "screenshot": "/Users/you/.gloss/shots/<session>/<pid>/pin-1.png"
   }
 }
@@ -107,6 +108,7 @@ the screen can find the code that draws it:
 | `box` | Where it was, in CSS pixels from the top left of the document. |
 | `viewport` | The window's size then, since a layout can depend on it. |
 | `quote` | The words the reviewer selected, when they commented on a selection. Absent otherwise. |
+| `suggestion` | The reviewer's proposed replacement for `quote`, when they suggested an edit rather than commenting. Absent otherwise. |
 | `screenshot` | A PNG of the element, taken by the session rather than the page. Absent when none could be taken. |
 
 The screenshot belongs to the session that wrote the verdict and is deleted

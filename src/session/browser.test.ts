@@ -95,12 +95,19 @@ describe('handleRpc', () => {
     assert.equal(verdict.comments[1]?.target, null);
   });
 
+  test('accepts a pin with a suggestion', async () => {
+    const store = new CommentStore();
+    const state = await call(store, { method: 'add', body: 'Add shipping', pin: draft({ quote: '$43.20', suggestion: '$43.20 (incl. shipping)' }) });
+    assert.equal(state.comments[0]?.pin?.suggestion, '$43.20 (incl. shipping)');
+  });
+
   test('refuses a screenshot path, or a malformed pin, from the page', async () => {
     const store = new CommentStore();
     const bad = [
       { method: 'add', body: 'x', pin: { ...draft(), screenshot: '/etc/passwd' } },
       { method: 'add', body: 'x', pin: { ...draft(), selector: '' } },
       { method: 'add', body: 'x', pin: { ...draft(), box: { x: 0, y: 0 } } },
+      { method: 'add', body: 'x', pin: { ...draft(), suggestion: 'x'.repeat(4_001) } },
       { method: 'nope' },
     ];
     for (const c of bad) await assert.rejects(call(store, c), /did not understand/);
