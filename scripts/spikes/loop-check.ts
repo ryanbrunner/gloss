@@ -198,8 +198,10 @@ try {
   await bar(page, '.bar').waitFor();
   console.log('round 2: only the two new comments, as round 2');
 
-  // A script in the page cannot submit or approve, by any route found.
+  // A script in the page cannot submit, approve or - since Add does what
+  // Submit does once live mode is on - add a comment, by any route found.
   await comment(page, 'Something to submit');
+  const before = (await roundState()).comments.length;
   // Plain script, as the page would run it (and out of reach of tsx's transform).
   const forged = (await page.evaluate(`(async () => {
     const approve = JSON.stringify({ method: 'approve', discardUnsent: true });
@@ -226,8 +228,11 @@ try {
       rewrite();
       return new RealPromise(executor);
     };
+    // A synthetic click on Add, and a synthetic Enter in the comment box:
+    // neither is trusted, so neither can do what a genuine one does.
     root.querySelector('textarea').value = 'sent past a hooked Map.prototype.get';
     root.querySelector('.add').click();
+    root.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true }));
     await new RealPromise((r) => setTimeout(r, 300));
     Map.prototype.get = get;
     window.Promise = RealPromise;
@@ -236,20 +241,19 @@ try {
   })()`)) as { globals: string[]; error: string | null };
   assert.deepEqual(forged.globals, [], "neither the binding nor anything of Playwright's is on window");
   assert.equal(forged.error, '', 'the bar sent without complaint');
-  const afterForgery = await until('the comment sent past the hooks', async () => {
-    const state = await roundState();
-    return state.comments.some((c) => c.body === 'sent past a hooked Map.prototype.get') && state;
-  });
+  await sleep(300);
+  const afterForgery = await roundState();
   assert.equal(afterForgery.phase, 'reviewing', 'no submission or approval from the page');
   assert.equal(afterForgery.round, 3);
-  console.log('page script: no binding on window; clicks, and a hooked Map.get and Promise patching JSON, do nothing');
+  assert.equal(afterForgery.comments.length, before, 'a synthetic click on Add or Enter in the box adds nothing');
+  console.log('page script: no binding on window; clicks, a synthetic Enter, and a hooked Map.get and Promise patching JSON, do nothing');
 
   // Approve with an unsent comment: the prompt, Cancel, then discard and approve.
   await bar(page, '.bar > .approve').click();
-  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 2 unsent comments\?/);
+  assert.match(await bar(page, '.confirm-text').innerText(), /Approve and discard 1 unsent comment\?/);
   await bar(page, '.confirm button').filter({ hasText: 'Cancel' }).click();
   assert.ok(await bar(page, '.bar > .approve').isVisible());
-  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', 6]);
+  assert.deepEqual([(await roundState()).phase, (await roundState()).comments.length], ['reviewing', before]);
   const waiting3 = waitInBackground();
   await sleep(300);
   await bar(page, '.bar > .approve').click();
@@ -258,11 +262,10 @@ try {
   assert.deepEqual([approved.approved, approved.round, approved.comments], [true, 3, []]);
   const end = await roundState();
   assert.equal(end.phase, 'approved');
-  const discarded = ['Something to submit', 'sent past a hooked Map.prototype.get'];
-  assert.ok(!end.comments.some((c) => discarded.includes(c.body)), 'the discarded comments are gone');
+  assert.ok(!end.comments.some((c) => c.body === 'Something to submit'), 'the discarded comment is gone');
   assert.ok(end.comments.every((c) => c.sentIn !== null));
   await until('the approved status', async () => (await statusText(page)) === 'Approved');
-  console.log('approve: the prompt counts 2 unsent, Cancel keeps them, Discard & approve prints approved true with no comments');
+  console.log('approve: the prompt counts 1 unsent, Cancel keeps it, Discard & approve prints approved true with no comments');
 
   assert.equal((await gloss(['close'])).code, 0);
   await disconnect();
