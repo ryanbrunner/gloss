@@ -52,10 +52,21 @@ export interface SessionApi {
  * server's to decide: both get the request.
  */
 export interface Reviews {
-  /** The review's store, or null when there is none this request may see. */
+  /**
+   * The review's store, or null when there is none this request may act on.
+   * A server handing rounds to many agents answers null for a review it
+   * handed to another, so one agent cannot mark another's round done.
+   */
   store(review: string, c: Context): CommentStore | null | Promise<CommentStore | null>;
   /** What this request's wait watches: version 2 verdicts, from whichever review has one. */
   inbox(c: Context): VerdictSource | Promise<VerdictSource>;
+  /**
+   * Why this caller may not wait now, or null when it may: it is working on
+   * a round it has not said `ready` to. The same rule as a session's, kept
+   * per agent: a wait then would hand it another review's round while it
+   * still has one, and its `ready` would go to the wrong review.
+   */
+  busy(c: Context): string | null | Promise<string | null>;
 }
 
 /** What a wait watches for a verdict: a store, or anything that hands one out the way a store does. */
@@ -173,12 +184,14 @@ export function createApp(session: SessionApi): Hono {
   // The verdict of the round submitted or approved, held until there is one
   // or `wait` seconds pass. Asked again before the agent moves, it is the same
   // verdict: a connection lost on the way loses no round.
-  // With many reviews, one being worked on holds up no other, so a wait is
-  // refused only by what the server's inbox decides.
+  // With many reviews, one being worked on holds up no other agent: only
+  // the one working on it is refused, until it says it is ready.
   app.get('/api/verdict', async (c) => {
     if (single?.snapshot().phase === 'working') {
       return c.json({ error: 'the agent is marked working, so the reviewer cannot submit: run `gloss ready` first' }, 409);
     }
+    const busy = reviews && (await reviews.busy(c));
+    if (busy) return c.json({ error: busy }, 409);
     const source = single ?? (await reviews!.inbox(c));
     const seconds = Math.min(Math.max(Number(c.req.query('wait')) || 0, 0), MAX_WAIT_SECONDS);
     const outcome = await session.waits.next(source, seconds * 1000, c.req.raw.signal);

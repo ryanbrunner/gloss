@@ -68,10 +68,16 @@ reconnects to the same server. The expected behaviour, and what
 1. A round handed to one client is that client's: asked again, before it
    says `working` or `ready`, it gets the **same verdict again**, and no
    other client is handed it.
-2. It stays that client's through `working` until `ready`.
-3. A client that has gone quiet loses it. `CommentStore.requeue()` puts a
+2. It stays that client's through `working` until `ready`. Meanwhile that
+   client's `GET /api/verdict` is refused with 409 (`Reviews.busy`), as a
+   session refuses a wait while working. Otherwise it would be handed
+   another review's round, and its `ready` would land on the wrong review.
+   Other clients still get rounds.
+3. Only that client may act on the review: `store(review)` answers null,
+   and so 404, for a review handed to someone else.
+4. A client that has gone quiet loses it. `CommentStore.requeue()` puts a
    round that was being worked on back to waiting, as it was submitted.
-4. An approval handed to a client is done with once that client asks for
+5. An approval handed to a client is done with once that client asks for
    its next verdict. Until then, it is handed to that client again, like
    any other verdict.
 
