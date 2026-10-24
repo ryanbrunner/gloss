@@ -127,14 +127,17 @@ curl -H "Authorization: Bearer $(jq -r .token $state)" \
 
 | Route | |
 | --- | --- |
-| `GET /api/health` | `{ok, pid, url}`: the page the window is on now |
+| `GET /api/health` | `{ok, pid, url, capabilities}`: the page the window is on now, and which of the routes below this session serves |
 | `GET /api/state` | `{round, phase, message, summary, summaryRound, live, comments: [{id, body, createdAt, page, sentIn, pin?}]}` |
 | `GET /api/verdict?wait=N` | the verdict, or `{pending: true}` after N seconds (at most 30); 409 while working, 410 once the session is ending |
 | `POST /api/working` | `{message}`: the agent has the round |
-| `POST /api/ready` | `{summary}`: the agent is done; reloads every page |
+| `POST /api/ready` | `{summary}`: the agent is done; reloads every page, and answers `reloaded: true` |
 | `POST /api/navigate` | `{url}`: move the window |
 | `POST /api/live` | `{live}`: turns live mode on or off; sends anything already unsent if it turns on while the round is the reviewer's |
 | `POST /api/close` | end the session |
+
+[docs/protocol.md](docs/protocol.md) is the same API for a server other than
+the session: one with many reviews, reached with `gloss connect`.
 
 `round` is the round being written now. `phase` is `reviewing`, `submitted`,
 `working` or `approved`. A comment's `sentIn` is the round it went out in, or

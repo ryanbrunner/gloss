@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { CommentStore } from '#core/store.js';
 import { createApp, startServer, Waits, type SessionApi } from './server.js';
 
-type TestSession = SessionApi & { navigated: string[]; closed: number; reloads: number; reloadSummary: (string | null)[] };
+type TestSession = SessionApi & { store: CommentStore; navigated: string[]; closed: number; reloads: number; reloadSummary: (string | null)[] };
 
 function session(values: Partial<SessionApi> = {}): TestSession {
   const s: TestSession = {

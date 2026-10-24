@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { verdictSchema } from './verdict.js';
+import { parseStoreData } from './store-data.js';
 import { CommentStore, pinNumbers, type Pin, type RoundState } from './store.js';
 
 const PAGE = 'http://127.0.0.1:4400/';
@@ -426,3 +427,139 @@ function pin(): Pin {
     suggestion: '$16.00 (sale)',
   };
 }
+
+describe('authors', () => {
+  const ANA = { id: 'u1', name: 'Ana' };
+
+  test('a comment carries the author it was added with, into the verdict', () => {
+    const store = new CommentStore(() => 1000);
+    store.add('The header is too tall', PAGE, undefined, ANA);
+    store.add('No one said who wrote this');
+    const verdict = store.submit(PAGE);
+    assert.deepEqual(verdict.comments[0]?.author, ANA);
+    assert.equal('author' in verdict.comments[1]!, false);
+    assert.ok(verdictSchema.safeParse(verdict).success);
+  });
+
+  test('a snapshot’s author is a copy, not the store’s own', () => {
+    const store = new CommentStore();
+    store.add('one', PAGE, undefined, { ...ANA });
+    store.snapshot().comments[0]!.author!.name = 'Someone else';
+    assert.equal(store.snapshot().comments[0]?.author?.name, 'Ana');
+  });
+});
+
+describe('requeue', () => {
+  test('hands a round the agent dropped back to wait for an agent, as it was submitted', () => {
+    const store = new CommentStore(() => 1000);
+    store.add('one', PAGE);
+    const submitted = store.submit(PAGE);
+    store.working('on it');
+    assert.equal(store.verdict(), null);
+    store.requeue();
+    assert.equal(store.snapshot().phase, 'submitted');
+    assert.equal(store.snapshot().message, null);
+    assert.deepEqual(store.verdict(), submitted);
+    store.working(null);
+    store.ready('done');
+    assert.equal(store.snapshot().phase, 'reviewing');
+  });
+
+  test('is only for a round the agent has', () => {
+    const store = new CommentStore();
+    assert.throws(() => store.requeue(), /cannot be handed back/);
+    store.add('one');
+    store.submit(null);
+    assert.throws(() => store.requeue(), /cannot be handed back/);
+  });
+});
+
+describe('toJSON and from', () => {
+  /** Each phase a store can be stored in, and how it got there. */
+  const phases: Record<string, (store: CommentStore) => void> = {
+    'reviewing, with something unsent': (s) => {
+      s.add('one', PAGE);
+    },
+    submitted: (s) => {
+      s.add('one', PAGE, undefined, { id: 'u1', name: null });
+      s.submit(PAGE);
+    },
+    working: (s) => {
+      s.add('one', PAGE);
+      s.submit(PAGE);
+      s.working('on it');
+    },
+    'back with the reviewer, with a summary': (s) => {
+      s.add('one', PAGE);
+      s.submit(PAGE);
+      s.ready('Fixed it');
+    },
+    'live, with a comment queued while the agent works': (s) => {
+      s.setLive(true);
+      s.add('one', PAGE);
+      s.working(null);
+      s.add('two', PAGE);
+    },
+    approved: (s) => {
+      s.add('one', PAGE);
+      s.submit(PAGE);
+      s.ready(null);
+      s.approve(PAGE);
+    },
+  };
+
+  for (const [name, play] of Object.entries(phases)) {
+    test(`a store ${name} comes back as it was, through JSON`, () => {
+      const store = new CommentStore(() => 1000);
+      play(store);
+      const data = parseStoreData(JSON.parse(JSON.stringify(store)));
+      assert.ok(data, 'what toJSON wrote parses as store data');
+      const back = CommentStore.from(data, () => 2000);
+      assert.deepEqual(back.snapshot(), store.snapshot());
+      assert.deepEqual(back.verdict(), store.verdict());
+      assert.deepEqual(back.toJSON(), store.toJSON());
+    });
+  }
+
+  test('numbers the next comment after the last, rather than starting again', () => {
+    const store = new CommentStore();
+    store.add('one');
+    store.add('two');
+    const back = CommentStore.from(store.toJSON());
+    const next = back.add('three');
+    assert.ok(next && !store.snapshot().comments.some((c) => c.id === next.id));
+  });
+
+  test('carries on where it left off: the queued live comment goes out on ready', () => {
+    const store = new CommentStore(() => 1000);
+    phases['live, with a comment queued while the agent works']!(store);
+    const back = CommentStore.from(store.toJSON());
+    back.ready('done');
+    assert.equal(back.snapshot().phase, 'submitted');
+    assert.deepEqual(back.verdict()?.comments.map((c) => c.body), ['two']);
+  });
+
+  test('a round the agent had can still be handed back after a restart', () => {
+    const store = new CommentStore();
+    phases.working!(store);
+    const back = CommentStore.from(store.toJSON());
+    back.requeue();
+    assert.equal(back.verdict()?.round, 1);
+  });
+
+  test('is not changed by what it was made from, or what it gives', () => {
+    const store = new CommentStore();
+    store.add('one');
+    const data = store.toJSON();
+    const back = CommentStore.from(data);
+    data.comments[0]!.body = 'changed';
+    back.toJSON().comments[0]!.body = 'changed too';
+    assert.equal(back.snapshot().comments[0]?.body, 'one');
+  });
+
+  test('parseStoreData refuses what is not a store’s data', () => {
+    assert.equal(parseStoreData(null), null);
+    assert.equal(parseStoreData({ v: 2 }), null);
+    assert.equal(parseStoreData({ ...new CommentStore().toJSON(), phase: 'lost' }), null);
+  });
+});
