@@ -1,4 +1,4 @@
-import type { Pin, PinDraft } from '../session/store.js';
+import type { Pin, PinDraft } from '../store.js';
 import { h, sendOnEnter } from './dom.js';
 import { placePopover, samePage, squeeze, type Rect } from './geometry.js';
 import type { Selected } from './selection.js';

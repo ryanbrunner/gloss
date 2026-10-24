@@ -234,7 +234,7 @@ as it is written; `summaryRound` is the round `summary` is about, since
   logins or extensions.
 - `document.execCommand` edits whatever has focus, including the comment box,
   and in Chromium fires only a trusted `input` event with no `beforeinput`
-  first, unlike a real edit. `createValueGuard` in `src/bar/dom.ts` marks a
+  first, unlike a real edit. `createValueGuard` in `packages/core/src/bar/dom.ts` marks a
   trusted edit as the box's own on its `beforeinput`, after every page
   capture listener further up the tree has had its turn, and bar.ts stops
   `beforeinput` and `input` from bubbling past the shadow root, so a page
@@ -282,7 +282,7 @@ browser. If Chromium is missing, `gloss open` exits 1 and says to run
 npm test              # unit tests
 npm run typecheck
 npm run dev -- -port 4400
-npm run schema        # rewrite schema/verdict.v1.json from src/verdict.ts
+npm run schema        # rewrite schema/verdict.v1.json from packages/core/src/verdict.ts
 npx tsx scripts/spikes/open-check.ts   # end to end, headless; needs Chromium
 npx tsx scripts/spikes/loop-check.ts   # the review loop: rounds, working, ready, approve, no-verdict cases
 npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
@@ -290,8 +290,17 @@ npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Optio
 
 CI runs all three spikes on every push and pull request, in
 `.github/workflows/ci.yml`. It also installs the packed tarball the way
-Homebrew does and runs it on node 22 and 26, and lints the formula.
+Homebrew does and runs it on node 22 and 26, builds and installs
+`@glossdev/core`, and lints the formula.
 [docs/releasing.md](docs/releasing.md) covers releases.
+
+The code is in two parts. `packages/core` is
+[`@glossdev/core`](packages/core/README.md): the review store, the verdict,
+the bar and the session's HTTP API, with nothing that needs Node, so another
+host can run them. `src` is the CLI around it: the session process,
+Playwright and the commands. The CLI imports core's TypeScript directly, as
+`#core/…` (the `imports` map in `package.json`), so neither needs a build to
+run from a checkout or from Homebrew; only the npm package is built.
 
 `npm run dev` serves a fixture storefront to point `gloss open` at. It also
 reads `--port` and `PORT`. Query flags make each state of the bar reachable

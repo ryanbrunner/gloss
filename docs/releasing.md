@@ -2,7 +2,10 @@
 
 Gloss is published as a Homebrew formula in
 [ryanbrunner/homebrew-tap](https://github.com/ryanbrunner/homebrew-tap), and
-installed with `brew install ryanbrunner/tap/gloss`. It is not on npm.
+installed with `brew install ryanbrunner/tap/gloss`. The CLI is not on npm.
+Its shared code is: [`@glossdev/core`](../packages/core/README.md), built from
+`packages/core` and released with the same version. The CLI never installs
+it from npm; the formula carries core's source in the CLI's own tarball.
 
 The formula's source is [packaging/homebrew/gloss.rb](../packaging/homebrew/gloss.rb)
 in this repo. A tag runs `.github/workflows/release.yml`, which fills in the
@@ -11,10 +14,10 @@ template's `url` and `sha256` for the tag and pushes the result to the tap as
 
 ## A release
 
-1. Bump `version` in both `package.json` and `plugin/.claude-plugin/plugin.json`,
-   and the tag in the `url` of `packaging/homebrew/gloss.rb`. Run
-   `npm install --package-lock-only` so the lockfile follows. `npm test`
-   fails while the three differ.
+1. Bump `version` in `package.json`, `plugin/.claude-plugin/plugin.json` and
+   `packages/core/package.json`, and the tag in the `url` of
+   `packaging/homebrew/gloss.rb`. Run `npm install --package-lock-only` so
+   the lockfile follows. `npm test` fails while they differ.
 2. Merge that to main.
 3. Tag the merge and push the tag:
 
@@ -25,13 +28,15 @@ template's `url` and `sha256` for the tag and pushes the result to the tap as
 
 The release workflow then:
 
-1. fails, publishing nothing, unless the tag is `vX.Y.Z` and both version
-   fields are `X.Y.Z`;
+1. fails, publishing nothing, unless the tag is `vX.Y.Z` and all three
+   version fields are `X.Y.Z`;
 2. downloads `archive/refs/tags/vX.Y.Z.tar.gz` and hashes it;
 3. makes the formula from the template with that url and sha256, and prints it;
 4. checks out the tap over SSH with `HOMEBREW_TAP_SSH_KEY`;
 5. creates the GitHub release with generated notes, unless it already exists;
-6. commits `Formula/gloss.rb` to the tap as `gloss X.Y.Z` and pushes to its main.
+6. commits `Formula/gloss.rb` to the tap as `gloss X.Y.Z` and pushes to its main;
+7. then, in a job of its own, builds `@glossdev/core` and publishes it to
+   npm with provenance, unless that version is already there.
 
 Then check it from a clean shell:
 
@@ -45,7 +50,7 @@ brew audit --strict --online ryanbrunner/tap/gloss
 ### A dry run
 
 Run by hand, the workflow makes and prints the formula and publishes nothing:
-no release and no push to the tap.
+no release, no push to the tap, and only `npm publish --dry-run` for core.
 
 ```sh
 gh workflow run release.yml -f tag=v0.2.0
@@ -81,8 +86,9 @@ anything published in the last day.
 
 ## One-time setup
 
-Done once, before the first tag. Without both, the first release's push to
-the tap fails; rerunning the job once they exist recovers.
+Done once, before the first tag. Without the tap and its deploy key, the
+first release's push to the tap fails; without the npm token, the core
+publish fails. Rerunning the failed job once they exist recovers.
 
 ### The tap
 
@@ -121,8 +127,21 @@ GitHub CLI from the account deletes this one; the release workflow then fails
 at the tap checkout, before it creates the release. Add a key again and set
 the secret again.
 
+### The npm org and token
+
+`@glossdev/core` lives in the `glossdev` npm org (the `gloss` scope belongs
+to someone else). Create the org at npmjs.com, then a granular access token
+that can read and write packages in it, and store it here:
+
+```sh
+gh secret set NPM_TOKEN -R ryanbrunner/gloss
+```
+
 ## When something goes wrong
 
+- **Core failed to publish** after the formula went out. Fix the token and
+  rerun `publish-core`; it skips a version already on npm, so a rerun never
+  publishes twice.
 - **The tag does not match a version.** Nothing was published. Delete the
   tag (`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`), fix the
   versions, and tag again.

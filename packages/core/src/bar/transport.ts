@@ -1,4 +1,4 @@
-import { CommentStore, type Phase, type Pin, type PinDraft, type RoundState } from '../session/store.js';
+import { CommentStore, type Phase, type Pin, type PinDraft, type RoundState } from '../store.js';
 
 /**
  * How the bar reaches whatever holds the round. The bar does not know which
@@ -21,7 +21,7 @@ export interface Transport {
   subscribe(listener: (state: RoundState) => void): void;
 }
 
-/** What the bar asks of the session. See `handleRpc` in ../session/browser.ts. */
+/** What the bar asks of the session. See `handleRpc` in ../rpc.ts. */
 export type RpcCall =
   | { method: 'state' }
   | { method: 'add'; body: string; pin?: PinDraft }
@@ -50,7 +50,7 @@ export const DELIVER = '__glossDeliver';
 
 /**
  * The session's transport. The bar runs in an isolated world of its own (see
- * ../session/browser.ts), and both ends of this channel live there: the
+ * the CLI's src/session/browser.ts), and both ends of this channel live there: the
  * binding it calls, and DELIVER, which the session calls with each answer
  * and with the round after every change.
  *

@@ -16,7 +16,7 @@ Claude.
 - **Clear space:** at least the stroke's width (11/64 of the tile) on every side.
 - **With the word:** the glyph goes first, about as tall as the capitals,
   then "Gloss".
-- **In the bar:** `src/bar/logo.ts` draws the same glyph node by node, for
+- **In the bar:** `packages/core/src/bar/logo.ts` draws the same glyph node by node, for
   pages that enforce Trusted Types. Change it with these files.
 - **Don't:** recolour the ◆ to anything but sky, add a glow or gradient, or set
   the G in a font.

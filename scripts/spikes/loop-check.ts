@@ -19,10 +19,10 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
+import type { RoundState } from '#core/store.js';
+import { verdictSchema, type Verdict } from '#core/verdict.js';
 import { createDevServer } from '../dev.js';
 import { readState, sessionRef } from '../../src/session/state.js';
-import type { RoundState } from '../../src/session/store.js';
-import { verdictSchema, type Verdict } from '../../src/verdict.js';
 
 const BIN = fileURLToPath(new URL('../../bin/gloss.js', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'gloss-loop-check-'));
