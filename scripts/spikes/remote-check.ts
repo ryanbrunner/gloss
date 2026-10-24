@@ -253,10 +253,14 @@ try {
   r2.approve(page);
   const approved = v2Of(await gloss(agentB, ['wait']));
   assert.deepEqual([approved.review, approved.approved], ['r2', true]);
-  const after = gloss(agentB, ['wait'], 1_500);
-  await sleep(500);
+  // However long the CLI takes to start, its first ask is what tells the
+  // server; then it waits on, with nothing to hand out, until it is stopped.
+  const after = spawn(process.execPath, [BIN, 'wait'], { cwd: agentB, env });
+  for (let i = 0; i < 150 && !archived.has('r2'); i++) await sleep(100);
   assert.ok(archived.has('r2'), 'the next wait told the server the approval was read');
-  assert.equal((await after).code, 1, 'nothing else to hand out: still waiting when killed');
+  await sleep(500);
+  assert.equal(after.exitCode, null, 'nothing else to hand out: still waiting');
+  after.kill();
   assert.ok(readRemote(sessionRef(agentB)), 'still connected after an approval');
   console.log('approve: ends one review; the next wait acknowledges it and keeps waiting');
 
@@ -285,9 +289,10 @@ try {
   await sleep(300);
   server.close();
   (server as unknown as { closeAllConnections(): void }).closeAllConnections();
-  await sleep(2_500);
-  assert.equal(child.exitCode, null, `wait gave up on a server that went away:\n${stderr}`);
+  for (let i = 0; i < 150 && !/trying again/.test(stderr); i++) await sleep(100);
   assert.match(stderr, /could not reach the Gloss server .* trying again/);
+  await sleep(1_000);
+  assert.equal(child.exitCode, null, `wait gave up on a server that went away:\n${stderr}`);
   child.kill();
   console.log('wait: keeps trying a server that is not answering');
 
