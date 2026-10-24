@@ -251,7 +251,7 @@ describe('a host other than the CLI’s session', () => {
   });
 
   test('will not serve with both one store and many reviews, or neither', () => {
-    const reviews = { store: () => null, inbox: () => new CommentStore() };
+    const reviews = { store: () => null, inbox: () => new CommentStore(), busy: () => null };
     assert.throws(() => createApp(bare({ token: 'secret', reviews })), /a store or reviews, and not both/);
     assert.throws(() => createApp(bare({ token: 'secret', store: undefined })), /a store or reviews, and not both/);
   });
@@ -316,15 +316,17 @@ describe('a server holding many reviews', () => {
       },
     };
     const asked: string[] = [];
+    let busy: string | null = null;
     const reviews: Reviews = {
       store: (id, c) => {
         asked.push(`${id} by ${c.req.header('x-gloss-client') ?? 'nobody'}`);
         return stores.get(id) ?? null;
       },
       inbox: () => inbox,
+      busy: () => busy,
     };
     const app = createApp({ token: 'secret', reviews, waits: new Waits(), currentUrl: () => null });
-    return { app, stores, asked };
+    return { app, stores, asked, setBusy: (why: string | null) => (busy = why) };
   }
 
   test('says it holds many in its health', async () => {
@@ -378,5 +380,17 @@ describe('a server holding many reviews', () => {
     assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing', reloaded: false });
     assert.equal(stores.get('r1')!.snapshot().summary, 'Fixed');
     assert.equal(stores.get('r2')!.snapshot().phase, 'submitted');
+  });
+
+  test('refuses a wait from an agent the server says is still working on a round', async () => {
+    const { app, stores, setBusy } = many();
+    stores.get('r2')!.add('two');
+    stores.get('r2')!.submit(null);
+    setBusy('you are working on review r1: run `gloss ready` first');
+    const refused = await verdict(app, 5);
+    assert.equal(refused.status, 409);
+    assert.match(((await refused.json()) as { error: string }).error, /review r1: run `gloss ready`/);
+    setBusy(null);
+    assert.equal(((await (await verdict(app)).json()) as { review: string }).review, 'r2');
   });
 });

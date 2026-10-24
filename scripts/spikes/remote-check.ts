@@ -100,6 +100,7 @@ function withPictureLinks(v: VerdictV2): VerdictV2 {
   return v;
 }
 
+const clientOf = (c: Context) => c.req.header('x-gloss-client') ?? '';
 const signedIn = (c: Context) => tokens.has(c.req.header('authorization')?.replace(/^Bearer /, '') ?? '');
 const app = new Hono();
 let origin = '';
@@ -124,8 +125,17 @@ app.route(
   createApp({
     auth: async (c, next) => (signedIn(c) ? next() : c.json({ error: 'sign in first' }, 401)),
     reviews: {
-      store: (id) => (archived.has(id) ? null : (reviews.get(id) ?? null)),
-      inbox: (c) => inbox(c.req.header('x-gloss-client') ?? ''),
+      // Only the agent a round was handed to may act on its review.
+      store: (id, c) => (claims.get(id) === clientOf(c) && !archived.has(id) ? (reviews.get(id) ?? null) : null),
+      inbox: (c) => inbox(clientOf(c)),
+      busy: (c) => {
+        for (const [id, by] of claims) {
+          if (by === clientOf(c) && reviews.get(id)?.snapshot().phase === 'working') {
+            return `this agent is working on review ${id}: run \`gloss ready\` first`;
+          }
+        }
+        return null;
+      },
     },
     waits: new Waits(),
     currentUrl: () => null,
@@ -209,15 +219,34 @@ try {
   assert.deepEqual(other.comments[0]?.author, { id: 'u-ana', name: 'Ana' });
   console.log('wait: version 2 verdicts in order, one agent each, with authors and pictures fetched locally');
 
+  // An agent working on one review gets no other's round until it is ready,
+  // so its `ready` cannot land on the wrong review.
+  assert.equal((await gloss(agentA, ['working', 'Shortening the header'])).code, 0);
+  const busy = await gloss(agentA, ['wait']);
+  assert.equal(busy.code, 1);
+  assert.equal(busy.stdout, '');
+  assert.match(busy.stderr, /working on review r1: run `gloss ready` first/);
+  assert.equal(readRemote(sessionRef(agentA))?.review, 'r1');
+  // Nor can one agent move a review it was not handed.
+  const b = readRemote(sessionRef(agentB))!;
+  const meddle = await fetch(`${origin}/api/ready`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${TOKEN}`, 'x-gloss-client': b.clientId, 'content-type': 'application/json' },
+    body: JSON.stringify({ review: 'r1', summary: 'not mine' }),
+  });
+  assert.equal(meddle.status, 404);
+  assert.equal(r1.snapshot().phase, 'working');
+  console.log('wait: refused while this agent works on a round; another agent cannot move it');
+
   // Working and ready move the review they are about, and only that one.
   assert.equal((await gloss(agentB, ['working', 'Fixing the total'])).code, 0);
   assert.equal(r2.snapshot().phase, 'working');
-  assert.equal(r1.snapshot().phase, 'submitted');
+  assert.equal(r1.snapshot().phase, 'working');
   const done = await gloss(agentB, ['ready', 'The total now includes shipping']);
   assert.equal(done.code, 0, done.stderr);
   assert.match(done.stdout, /Posted the summary; the reviewer sees it the next time they open the page/);
   assert.equal(r2.snapshot().summary, 'The total now includes shipping');
-  assert.equal(r1.snapshot().phase, 'submitted');
+  assert.equal(r1.snapshot().phase, 'working');
   console.log('working/ready: move only their review, and say nothing was reloaded');
 
   // Approving one review ends that review, not the agent's connection.
@@ -248,7 +277,6 @@ try {
 
   // A server that has gone is waited out, not given up on. Agent A's round
   // is done first, so its wait has nothing to print at once.
-  assert.equal((await gloss(agentA, ['working'])).code, 0);
   assert.equal((await gloss(agentA, ['ready', 'Shorter header'])).code, 0);
   assert.equal(r1.snapshot().summary, 'Shorter header');
   const child = spawn(process.execPath, [BIN, 'wait'], { cwd: agentA, env: { ...env } });
