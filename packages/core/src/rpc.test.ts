@@ -130,6 +130,23 @@ describe('handleRpc', () => {
   });
 });
 
+describe('handleRpc with a signed-in reviewer', () => {
+  const ANA = { id: 'u1', name: 'Ana' };
+
+  test('writes the comment as the reviewer the host says is there', async () => {
+    const store = new CommentStore();
+    await call(store, { method: 'add', body: 'one' }, { ...PAGE, author: ANA });
+    assert.deepEqual(store.snapshot().comments[0]?.author, ANA);
+  });
+
+  test('takes no author from the page', async () => {
+    const store = new CommentStore();
+    await call(store, { method: 'add', body: 'one', author: ANA });
+    assert.equal(store.snapshot().comments[0]?.author, undefined);
+    await assert.rejects(call(store, { method: 'add', body: 'two', pin: { ...draft(), author: ANA } }));
+  });
+});
+
 describe('answerRpc', () => {
   const send = (store: CommentStore, request: unknown, from = PAGE) => answerRpc(store, JSON.stringify(request), from);
 

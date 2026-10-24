@@ -5,6 +5,7 @@
  * is `@glossdev/core/server`.
  */
 export * from './store.js';
+export * from './store-data.js';
 export * from './verdict.js';
 export * from './rpc.js';
 export { firstLine } from './util.js';
