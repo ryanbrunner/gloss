@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { describe, test } from 'node:test';
-import { demoStore } from '../src/bar/transport.js';
-import type { RoundState } from '../src/session/store.js';
+import { demoStore } from '#core/bar/transport.js';
+import type { RoundState } from '#core/store.js';
 import { createDevServer, demoOptions, parsePort, renderPage, SEED_COMMENTS, SEED_TARGETS, STRICT_CSP } from './dev.js';
 
 describe('parsePort', () => {

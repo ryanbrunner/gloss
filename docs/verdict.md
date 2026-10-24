@@ -4,7 +4,7 @@
 prints one JSON document on stdout. This page is the contract for programs
 that read it, such as Reeve and the Gloss skill. The machine-readable form is
 [`schema/verdict.v1.json`](../schema/verdict.v1.json) (JSON Schema 2020-12),
-written from `src/verdict.ts`; `npm test` fails if the two drift apart.
+written from `packages/core/src/verdict.ts`; `npm test` fails if the two drift apart.
 
 ## Approval
 

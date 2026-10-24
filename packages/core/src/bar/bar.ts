@@ -1,4 +1,4 @@
-import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../session/store.js';
+import { pinNumbers, plural, type Comment, type PinDraft, type RoundState } from '../store.js';
 import { createValueGuard, h, icon, sendOnEnter, sheet } from './dom.js';
 import { pagePath, samePage, squeeze } from './geometry.js';
 import { logo } from './logo.js';

@@ -2,11 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { CommentStore } from '#core/store.js';
 import { CliError, parseOrUsage, usageError } from '../output.js';
 import { BrowserUnavailable, openBrowser, type SessionBrowser } from './browser.js';
 import { createApp, startServer, Waits, type RunningServer } from './server.js';
 import { removeState, sessionRef, writeState } from './state.js';
-import { CommentStore } from './store.js';
 
 /**
  * `gloss __session`: the long-lived process `gloss open` starts and leaves
@@ -65,6 +65,7 @@ export async function runSession(args: string[]): Promise<void> {
       store,
       waits,
       currentUrl: () => browser?.currentUrl() ?? null,
+      health: () => ({ pid: process.pid }),
       navigate: async (to) => {
         if (!browser) throw new Error('the browser is not open yet');
         await browser.navigate(to);
