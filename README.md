@@ -76,6 +76,9 @@ gloss close [--name N]         end the session and close its window
 gloss install-chromium [--with-deps]   download the Chromium Gloss drives, once
 gloss --version                print Gloss's version
 
+gloss connect <server-url> [--name N]   take this directory's rounds from a Gloss server elsewhere
+gloss login <server-url>       sign this machine in to a Gloss server; logout signs it out
+
 gloss wait [--name N]          block until the reviewer submits or approves; print the verdict as JSON
 gloss working [message]        the bar says Claude is working, with the message; the reviewer cannot submit
 gloss ready [summary]          reload the window, show the summary, and hand the next round to the reviewer
@@ -105,14 +108,38 @@ control is how a reviewer turns it back off.
 There is one session per working directory. `--name` gives a directory more
 than one.
 
+### Connected to a server
+
+`gloss connect <server-url>` points a directory at a Gloss server elsewhere
+instead of a window of its own. That is for reviewers who use the site in
+their own browsers, often the deployed site rather than a dev server, with
+many of them sending rounds into one inbox. It signs the machine in first
+if the server asks (a link to approve in a browser), and from then on
+`wait`, `working` and `ready` talk to that server until `gloss close`.
+
+- `gloss wait` prints the next round from any of the server's reviews, as a
+  [version 2 verdict](docs/verdict.md#version-2-many-reviews) that says which
+  review it is. It waits for as long as it takes, through a server that is
+  briefly down. Pictures of pinned elements are downloaded first, so
+  `target.screenshot` is a local file as usual.
+- `gloss working` and `gloss ready` act on that round's review. `ready`
+  reloads nothing; the reviewer sees the summary the next time they open
+  the page.
+- An approval ends that one review, not the connection.
+
+[docs/protocol.md](docs/protocol.md) is what such a server has to answer.
+
 ### Where things live
 
-- `~/.gloss/sessions/<id>.json`: the running session's pid, port and token.
+- `~/.gloss/sessions/<id>.json`: the running session's pid, port and token, or
+  the server a connected directory talks to.
   The id is a hash of the directory and `--name`. It is outside the repo, so
   a session never dirties a worktree.
 - `~/.gloss/logs/<id>.log`: the session process's output.
+- `~/.gloss/credentials.json`: the tokens `gloss login` got, one per server
+  origin, readable only by you.
 
-Set `GLOSS_HOME` to move both.
+Set `GLOSS_HOME` to move them all.
 
 ### The session API
 
@@ -289,9 +316,10 @@ npm run schema        # rewrite schema/verdict.v1.json from packages/core/src/ve
 npx tsx scripts/spikes/open-check.ts   # end to end, headless; needs Chromium
 npx tsx scripts/spikes/loop-check.ts   # the review loop: rounds, working, ready, approve, no-verdict cases
 npx tsx scripts/spikes/nav-check.ts    # links, forms, client nav, X-Frame-Options: DENY
+npx tsx scripts/spikes/remote-check.ts # gloss connect against a stand-in inbox server; no browser
 ```
 
-CI runs all three spikes on every push and pull request, in
+CI runs all four spikes on every push and pull request, in
 `.github/workflows/ci.yml`. It also installs the packed tarball the way
 Homebrew does and runs it on node 22 and 26, builds and installs
 `@glossdev/core`, and lints the formula.
