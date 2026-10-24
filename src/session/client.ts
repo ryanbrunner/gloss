@@ -77,6 +77,9 @@ async function request<T>(state: Target, path: string, init: RequestInit = {}): 
     throw new Unreachable(`could not reach ${what}: ${String((e as { cause?: unknown }).cause ?? e)}`);
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string };
+  // A server elsewhere sits behind proxies and restarts that answer 5xx for
+  // a moment; that is no answer, like a connection that failed.
+  if (res.status >= 500 && isRemote(state)) throw new Unreachable(`${what} answered ${res.status}`);
   if (res.status === 401 && isRemote(state)) {
     throw new Unauthorized(`${base} did not take this machine's token: run \`gloss login ${base}\``);
   }
