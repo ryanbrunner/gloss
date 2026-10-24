@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { createApp, Waits, type SessionApi } from './server.js';
+import { createApp, Waits, type Reviews, type SessionApi, type VerdictSource } from './server.js';
 import { CommentStore } from './store.js';
+import { forReview, type AnyVerdict } from './verdict.js';
 
-type TestSession = SessionApi & { navigated: string[]; closed: number; reloads: number; reloadSummary: (string | null)[] };
+type TestSession = SessionApi & { store: CommentStore; navigated: string[]; closed: number; reloads: number; reloadSummary: (string | null)[] };
 
 function session(values: Partial<SessionApi> = {}): TestSession {
   const s: TestSession = {
@@ -51,7 +52,12 @@ describe('the session API', () => {
 
   test('answers the health check with its pid and where the window is', async () => {
     const res = await createApp(session()).request('/api/health', { headers: auth });
-    assert.deepEqual(await res.json(), { ok: true, pid: process.pid, url: 'http://127.0.0.1:4400/' });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      pid: process.pid,
+      url: 'http://127.0.0.1:4400/',
+      capabilities: { navigate: true, reload: true, close: true, reviews: false },
+    });
   });
 
   test('reports the round and its comments', async () => {
@@ -179,7 +185,7 @@ describe('working and ready', () => {
     s.store.add('one');
     s.store.submit(null);
     const res = await post(app, '/api/ready', { summary: 'Tightened the header' });
-    assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing' });
+    assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing', reloaded: true });
     assert.equal(s.reloads, 1);
     assert.deepEqual(s.reloadSummary, ['Tightened the header']);
   });
@@ -244,9 +250,19 @@ describe('a host other than the CLI’s session', () => {
     assert.throws(() => createApp(bare()), /token or an auth check/);
   });
 
+  test('will not serve with both one store and many reviews, or neither', () => {
+    const reviews = { store: () => null, inbox: () => new CommentStore(), busy: () => null };
+    assert.throws(() => createApp(bare({ token: 'secret', reviews })), /a store or reviews, and not both/);
+    assert.throws(() => createApp(bare({ token: 'secret', store: undefined })), /a store or reviews, and not both/);
+  });
+
   test('answers health with only what it was given', async () => {
     const res = await createApp(bare({ token: 'secret' })).request('/api/health', { headers: auth });
-    assert.deepEqual(await res.json(), { ok: true, url: null });
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      url: null,
+      capabilities: { navigate: false, reload: false, close: false, reviews: false },
+    });
   });
 
   test('says it cannot navigate or close rather than pretending to', async () => {
@@ -256,14 +272,14 @@ describe('a host other than the CLI’s session', () => {
   });
 
   test('hands the round back on ready with nothing to reload', async () => {
-    const s = bare({ token: 'secret' });
-    const app = createApp(s);
-    s.store.add('one');
-    s.store.submit(null);
+    const store = new CommentStore();
+    const app = createApp(bare({ token: 'secret', store }));
+    store.add('one');
+    store.submit(null);
     assert.equal((await post(app, '/api/working')).status, 200);
     const res = await post(app, '/api/ready', { summary: 'Done' });
-    assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing' });
-    assert.equal(s.store.snapshot().summary, 'Done');
+    assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing', reloaded: false });
+    assert.equal(store.snapshot().summary, 'Done');
   });
 });
 
@@ -276,5 +292,105 @@ describe('Waits', () => {
     store.submit(null);
     const outcome = await held;
     assert.ok('verdict' in outcome && outcome.verdict.round === 1);
+  });
+});
+
+describe('a server holding many reviews', () => {
+  /** Two reviews, and an inbox that hands out the first with a verdict waiting, as version 2. */
+  function many() {
+    const stores = new Map([
+      ['r1', new CommentStore()],
+      ['r2', new CommentStore()],
+    ]);
+    const inbox: VerdictSource = {
+      verdict: (): AnyVerdict | null => {
+        for (const [id, store] of stores) {
+          const v = store.verdict();
+          if (v) return forReview(v, id);
+        }
+        return null;
+      },
+      onChange: (listener) => {
+        const offs = [...stores.values()].map((s) => s.onChange(listener));
+        return () => offs.forEach((off) => off());
+      },
+    };
+    const asked: string[] = [];
+    let busy: string | null = null;
+    const reviews: Reviews = {
+      store: (id, c) => {
+        asked.push(`${id} by ${c.req.header('x-gloss-client') ?? 'nobody'}`);
+        return stores.get(id) ?? null;
+      },
+      inbox: () => inbox,
+      busy: () => busy,
+    };
+    const app = createApp({ token: 'secret', reviews, waits: new Waits(), currentUrl: () => null });
+    return { app, stores, asked, setBusy: (why: string | null) => (busy = why) };
+  }
+
+  test('says it holds many in its health', async () => {
+    const res = await many().app.request('/api/health', { headers: auth });
+    assert.equal(((await res.json()) as { capabilities: { reviews: boolean } }).capabilities.reviews, true);
+  });
+
+  test('wants to know which review a request is about', async () => {
+    const { app } = many();
+    assert.equal((await app.request('/api/state', { headers: auth })).status, 400);
+    assert.equal((await post(app, '/api/working', {})).status, 400);
+    assert.equal((await app.request('/api/state?review=r9', { headers: auth })).status, 404);
+  });
+
+  test('answers each request from the review it names, and lets the server see who asks', async () => {
+    const { app, stores, asked } = many();
+    stores.get('r2')!.add('only in r2');
+    const res = await app.request('/api/state?review=r2', { headers: { ...auth, 'x-gloss-client': 'agent-1' } });
+    assert.deepEqual(((await res.json()) as { comments: { body: string }[] }).comments.map((c) => c.body), ['only in r2']);
+    assert.deepEqual(asked, ['r2 by agent-1']);
+  });
+
+  test('waits on the inbox, and hands out a verdict that says whose it is', async () => {
+    const { app, stores } = many();
+    const held = verdict(app, 5);
+    await new Promise((r) => setTimeout(r, 20));
+    stores.get('r2')!.add('one');
+    stores.get('r2')!.submit(null);
+    const v = (await (await held).json()) as { version: number; review: string; round: number };
+    assert.deepEqual([v.version, v.review, v.round], [2, 'r2', 1]);
+  });
+
+  test('one review with the agent holds up no other', async () => {
+    const { app, stores } = many();
+    for (const id of ['r1', 'r2']) {
+      stores.get(id)!.add('one');
+      stores.get(id)!.submit(null);
+    }
+    assert.equal((await post(app, '/api/working', { review: 'r1' })).status, 200);
+    const v = (await (await verdict(app)).json()) as { review: string };
+    assert.equal(v.review, 'r2');
+  });
+
+  test('moves only the review a body names, and reloads nothing', async () => {
+    const { app, stores } = many();
+    stores.get('r1')!.add('one');
+    stores.get('r1')!.submit(null);
+    stores.get('r2')!.add('two');
+    stores.get('r2')!.submit(null);
+    const res = await post(app, '/api/ready', { review: 'r1', summary: 'Fixed' });
+    assert.deepEqual(await res.json(), { ok: true, phase: 'reviewing', reloaded: false });
+    assert.equal(stores.get('r1')!.snapshot().summary, 'Fixed');
+    assert.equal(stores.get('r2')!.snapshot().phase, 'submitted');
+  });
+
+  test('refuses a wait from an agent the server says is still working on a round', async () => {
+    const { app, stores, setBusy } = many();
+    stores.get('r2')!.add('two');
+    stores.get('r2')!.submit(null);
+    setBusy('you are working on review r1: run `gloss ready` first');
+    const refused = await verdict(app, 5);
+    assert.equal(refused.status, 409);
+    assert.match(((await refused.json()) as { error: string }).error, /review r1: run `gloss ready`/);
+    setBusy(null);
+    assert.equal(((await (await verdict(app)).json()) as { review: string }).review, 'r2');
   });
 });

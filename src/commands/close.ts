@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { CliError, note, parseOrUsage, print } from '../output.js';
 import { api } from '../session/client.js';
-import { liveSession, pidAlive, sessionRef } from '../session/state.js';
+import { liveSession, pidAlive, readRemote, removeRemote, sessionRef } from '../session/state.js';
 
 /** Closing Chromium is most of it. */
 const CLOSE_WAIT_MS = 10_000;
@@ -10,10 +10,19 @@ const CLOSE_WAIT_MS = 10_000;
 /**
  * `gloss close`: end this directory's session, window and all. Closing when
  * nothing is open is not an error: the session is gone either way.
+ *
+ * Connected to a server elsewhere, it disconnects this directory and
+ * nothing more: the server's reviews carry on for the next agent to connect,
+ * and the sign-in stays until `gloss logout`.
  */
 export async function close(args: string[]): Promise<void> {
   const { values } = parseOrUsage(() => parseArgs({ args, options: { name: { type: 'string' } } }));
   const ref = sessionRef(process.cwd(), values.name ?? '');
+  const remote = readRemote(ref);
+  if (remote) {
+    removeRemote(ref);
+    return print(`Disconnected this directory from ${remote.server}.`);
+  }
   const state = await liveSession(ref);
   if (!state) return note('No Gloss session was running.');
 

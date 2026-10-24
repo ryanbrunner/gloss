@@ -1,9 +1,9 @@
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
 import { z } from 'zod';
 import type { CommentStore } from './store.js';
 import { firstLine } from './util.js';
-import type { Verdict } from './verdict.js';
+import type { AnyVerdict } from './verdict.js';
 
 /**
  * The session's HTTP API: what the CLI talks to while the browser is open.
@@ -15,8 +15,10 @@ import type { Verdict } from './verdict.js';
  * and one that guessed the port must not be able to read or steer the review.
  *
  * Nothing here is Node's, so a host other than the CLI's session can serve
- * it: one with accounts of its own passes `auth` in place of the token, and
- * one with no browser of its own leaves out what it cannot do.
+ * it: one with accounts of its own passes `auth` in place of the token, one
+ * with no browser of its own leaves out what it cannot do, and one holding
+ * many reviews passes `reviews` in place of `store`. docs/protocol.md is
+ * this API for anyone writing a server or a client of their own.
  */
 
 export interface SessionApi {
@@ -24,7 +26,10 @@ export interface SessionApi {
   token?: string;
   /** Checks each request in place of the token. */
   auth?: MiddlewareHandler;
-  store: CommentStore;
+  /** The one review, for a session that has one. */
+  store?: CommentStore;
+  /** In place of `store`, for a server holding many. */
+  reviews?: Reviews;
   /** The `gloss wait`s being held open. */
   waits: Waits;
   /** Where the window is now, for `gloss status`. */
@@ -39,9 +44,34 @@ export interface SessionApi {
   close?: () => void;
 }
 
+/**
+ * A server's many reviews, each a store of its own. A request names its
+ * review, as `?review=` or a body's `review`; a wait names none, and gets
+ * the next verdict from any of them, as version 2, which says whose it is.
+ * Who may see which review, and which verdict goes to which agent, is the
+ * server's to decide: both get the request.
+ */
+export interface Reviews {
+  /**
+   * The review's store, or null when there is none this request may act on.
+   * A server handing rounds to many agents answers null for a review it
+   * handed to another, so one agent cannot mark another's round done.
+   */
+  store(review: string, c: Context): CommentStore | null | Promise<CommentStore | null>;
+  /** What this request's wait watches: version 2 verdicts, from whichever review has one. */
+  inbox(c: Context): VerdictSource | Promise<VerdictSource>;
+  /**
+   * Why this caller may not wait now, or null when it may: it is working on
+   * a round it has not said `ready` to. The same rule as a session's, kept
+   * per agent: a wait then would hand it another review's round while it
+   * still has one, and its `ready` would go to the wrong review.
+   */
+  busy(c: Context): string | null | Promise<string | null>;
+}
+
 /** What a wait watches for a verdict: a store, or anything that hands one out the way a store does. */
 export interface VerdictSource {
-  verdict(): Verdict | null;
+  verdict(): AnyVerdict | null;
   /** Calls `listener` after every change, until the function it returns is called. */
   onChange(listener: () => void): () => void;
 }
@@ -54,7 +84,7 @@ export interface VerdictSource {
  */
 export const MAX_WAIT_SECONDS = 30;
 
-export type WaitOutcome = { verdict: Verdict } | { pending: true } | { ended: string };
+export type WaitOutcome = { verdict: AnyVerdict } | { pending: true } | { ended: string };
 
 /**
  * The waits on a verdict that are open now. A session that is stopping ends
@@ -97,21 +127,47 @@ export class Waits {
   }
 }
 
+const review = z.string().min(1).max(200).optional();
 const navigateBody = z.object({ url: z.url({ protocol: /^https?$/ }) });
-const workingBody = z.object({ message: z.string().max(2_000).nullish() });
-const readyBody = z.object({ summary: z.string().max(20_000).nullish() });
-const liveBody = z.object({ live: z.boolean() });
+const workingBody = z.object({ message: z.string().max(2_000).nullish(), review });
+const readyBody = z.object({ summary: z.string().max(20_000).nullish(), review });
+const liveBody = z.object({ live: z.boolean(), review });
 
 export function createApp(session: SessionApi): Hono {
   const auth = session.auth ?? (session.token ? bearerAuth({ token: session.token }) : null);
   if (!auth) throw new Error('the session API needs a token or an auth check');
+  const { store: single, reviews } = session;
+  if (!single === !reviews) throw new Error('the session API needs a store or reviews, and not both');
   const app = new Hono();
+
+  /** The store a request is about, or the answer that says why there is none. */
+  const storeFor = async (c: Context, id: string | undefined): Promise<CommentStore | Response> => {
+    if (single) return single;
+    if (!id) return c.json({ error: 'this server holds many reviews: say which, as `review`' }, 400);
+    return (await reviews!.store(id, c)) ?? c.json({ error: `no such review: ${id}` }, 404);
+  };
 
   app.use('/api/*', auth);
 
-  app.get('/api/health', (c) => c.json({ ok: true, ...session.health?.(), url: session.currentUrl() }));
+  app.get('/api/health', (c) =>
+    c.json({
+      ok: true,
+      ...session.health?.(),
+      url: session.currentUrl(),
+      capabilities: {
+        navigate: !!session.navigate,
+        reload: !!session.reload,
+        close: !!session.close,
+        reviews: !!reviews,
+      },
+    }),
+  );
 
-  app.get('/api/state', (c) => c.json(session.store.snapshot()));
+  app.get('/api/state', async (c) => {
+    const store = await storeFor(c, c.req.query('review'));
+    if (store instanceof Response) return store;
+    return c.json(store.snapshot());
+  });
 
   app.post('/api/navigate', async (c) => {
     const parsed = navigateBody.safeParse(await c.req.json().catch(() => null));
@@ -128,12 +184,17 @@ export function createApp(session: SessionApi): Hono {
   // The verdict of the round submitted or approved, held until there is one
   // or `wait` seconds pass. Asked again before the agent moves, it is the same
   // verdict: a connection lost on the way loses no round.
+  // With many reviews, one being worked on holds up no other agent: only
+  // the one working on it is refused, until it says it is ready.
   app.get('/api/verdict', async (c) => {
-    if (session.store.snapshot().phase === 'working') {
+    if (single?.snapshot().phase === 'working') {
       return c.json({ error: 'the agent is marked working, so the reviewer cannot submit: run `gloss ready` first' }, 409);
     }
+    const busy = reviews && (await reviews.busy(c));
+    if (busy) return c.json({ error: busy }, 409);
+    const source = single ?? (await reviews!.inbox(c));
     const seconds = Math.min(Math.max(Number(c.req.query('wait')) || 0, 0), MAX_WAIT_SECONDS);
-    const outcome = await session.waits.next(session.store, seconds * 1000, c.req.raw.signal);
+    const outcome = await session.waits.next(source, seconds * 1000, c.req.raw.signal);
     if ('ended' in outcome) return c.json({ error: outcome.ended }, 410);
     return c.json('verdict' in outcome ? outcome.verdict : outcome);
   });
@@ -141,26 +202,31 @@ export function createApp(session: SessionApi): Hono {
   app.post('/api/working', async (c) => {
     const parsed = workingBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'working takes a message of up to 2000 characters' }, 400);
+    const store = await storeFor(c, parsed.data.review);
+    if (store instanceof Response) return store;
     try {
-      session.store.working(parsed.data.message ?? null);
+      store.working(parsed.data.message ?? null);
     } catch (e) {
       return c.json({ error: firstLine(e) }, 409);
     }
-    return c.json({ ok: true, phase: session.store.snapshot().phase });
+    return c.json({ ok: true, phase: store.snapshot().phase });
   });
 
   // The summary is in the store before the reload, so the bar that mounts
-  // on the reloaded page shows it.
+  // on the reloaded page shows it. With no pages to reload, the reviewer
+  // sees it the next time they open one, and `reloaded` says so.
   app.post('/api/ready', async (c) => {
     const parsed = readyBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'ready takes a summary of up to 20000 characters' }, 400);
+    const store = await storeFor(c, parsed.data.review);
+    if (store instanceof Response) return store;
     try {
-      session.store.ready(parsed.data.summary ?? null);
+      store.ready(parsed.data.summary ?? null);
     } catch (e) {
       return c.json({ error: firstLine(e) }, 409);
     }
     await session.reload?.();
-    return c.json({ ok: true, phase: session.store.snapshot().phase });
+    return c.json({ ok: true, phase: store.snapshot().phase, reloaded: !!session.reload });
   });
 
   // `gloss open --live` against a session already running: argv cannot be
@@ -169,12 +235,14 @@ export function createApp(session: SessionApi): Hono {
   app.post('/api/live', async (c) => {
     const parsed = liveBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'live takes a boolean `live`' }, 400);
+    const store = await storeFor(c, parsed.data.review);
+    if (store instanceof Response) return store;
     try {
-      session.store.setLive(parsed.data.live);
+      store.setLive(parsed.data.live);
     } catch (e) {
       return c.json({ error: firstLine(e) }, 409);
     }
-    return c.json({ ok: true, live: session.store.snapshot().live });
+    return c.json({ ok: true, live: store.snapshot().live });
   });
 
   app.post('/api/close', (c) => {

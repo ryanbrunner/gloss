@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { BAR_HEIGHT } from './bar/styles.js';
 import type { Delivery } from './bar/transport.js';
-import type { Box, CommentStore, Pin, RoundState } from './store.js';
+import type { Author, Box, CommentStore, Pin, RoundState } from './store.js';
 import { firstLine } from './util.js';
 
 /**
@@ -44,6 +44,8 @@ export interface RpcSource {
   url: string;
   /** Whether it came from the page itself rather than a frame inside it, where the bar never is. */
   topFrame: boolean;
+  /** Who is at the bar, where the host knows: it signed them in, the page did not say so. */
+  author?: Author;
 }
 
 /**
@@ -68,7 +70,7 @@ export async function handleRpc(
     // The draft is the page's; the screenshot is the session's alone.
     const pin: Pin | undefined = data.pin && { ...data.pin };
     if (pin && data.body.trim() && capture) pin.screenshot = await capture(pin);
-    store.add(data.body, from.url, pin);
+    store.add(data.body, from.url, pin, from.author);
   }
   if (data.method === 'remove') store.remove(data.id);
   // The pin does not move, so the screenshot taken for it still stands.

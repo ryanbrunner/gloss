@@ -53,6 +53,15 @@ export type PinDraft = Omit<Pin, 'screenshot'>;
 
 export type Phase = 'reviewing' | 'submitted' | 'working' | 'approved';
 
+/**
+ * Who wrote a comment, where a review has more than one reviewer and the
+ * host knows who each is. Set by the host, never the page.
+ */
+export interface Author {
+  id: string;
+  name: string | null;
+}
+
 export interface Comment {
   id: string;
   body: string;
@@ -63,6 +72,8 @@ export interface Comment {
   sentIn: number | null;
   /** Absent for a general comment. */
   pin?: Pin;
+  /** Absent where the host does not say: the CLI's session has the one reviewer at the window. */
+  author?: Author;
 }
 
 /** What the bar renders, and what `GET /api/state` answers with. */
@@ -83,6 +94,27 @@ export interface RoundState {
 
 type Listener = (state: RoundState) => void;
 
+/**
+ * Everything a store holds, as plain data: what `toJSON` gives and
+ * `CommentStore.from` takes back, for a host that keeps a review across
+ * restarts. `parseStoreData` (./store-data.ts) checks one read back from
+ * storage.
+ */
+export interface StoreData {
+  v: 1;
+  round: number;
+  phase: Phase;
+  message: string | null;
+  summary: string | null;
+  summaryRound: number | null;
+  live: boolean;
+  pending: Verdict | null;
+  delivered: Verdict | null;
+  comments: Comment[];
+  seq: number;
+  lastPage: string | null;
+}
+
 export class CommentStore {
   private round = 1;
   private phase: Phase = 'reviewing';
@@ -90,6 +122,8 @@ export class CommentStore {
   private summary: string | null = null;
   private summaryRound: number | null = null;
   private pending: Verdict | null = null;
+  /** The round the agent last picked up, so one it dropped can be handed out again. */
+  private delivered: Verdict | null = null;
   private comments: Comment[] = [];
   private seq = 0;
   private listeners = new Set<Listener>();
@@ -113,18 +147,54 @@ export class CommentStore {
     };
   }
 
+  /** All of it, for `CommentStore.from` to take back. */
+  toJSON(): StoreData {
+    return structuredClone({
+      v: 1 as const,
+      round: this.round,
+      phase: this.phase,
+      message: this.message,
+      summary: this.summary,
+      summaryRound: this.summaryRound,
+      live: this.live,
+      pending: this.pending,
+      delivered: this.delivered,
+      comments: this.comments,
+      seq: this.seq,
+      lastPage: this.lastPage,
+    });
+  }
+
+  /** A store as `toJSON` left it, carrying on from there: the next comment is numbered after the last. */
+  static from(data: StoreData, now: () => number = Date.now): CommentStore {
+    const d = structuredClone(data);
+    const store = new CommentStore(now, d.live);
+    store.round = d.round;
+    store.phase = d.phase;
+    store.message = d.message;
+    store.summary = d.summary;
+    store.summaryRound = d.summaryRound;
+    store.pending = d.pending;
+    store.delivered = d.delivered;
+    store.comments = d.comments;
+    store.seq = d.seq;
+    store.lastPage = d.lastPage;
+    return store;
+  }
+
   /** The submitted or approved round, until the agent picks it up. */
   verdict(): Verdict | null {
     return this.pending && structuredClone(this.pending);
   }
 
   /** A comment is its text trimmed; one with nothing in it is not added. */
-  add(body: string, page: string | null = null, pin?: Pin): Comment | null {
+  add(body: string, page: string | null = null, pin?: Pin, author?: Author): Comment | null {
     const text = body.trim();
     if (!text) return null;
     if (this.phase === 'approved') throw new Error('the review is approved; there is nothing more to comment on');
     const comment: Comment = { id: `c${++this.seq}`, body: text, createdAt: this.now(), page, sentIn: null };
     if (pin) comment.pin = copyPin(pin);
+    if (author) comment.author = { ...author };
     this.comments.push(comment);
     this.lastPage = page;
     // Live: the comment just written is its own round, sent at once rather
@@ -218,7 +288,22 @@ export class CommentStore {
     this.expect(['submitted', 'working'], 'be marked working');
     this.phase = 'working';
     this.message = message?.trim() || null;
+    if (this.pending) this.delivered = this.pending;
     this.pending = null;
+    this.changed();
+  }
+
+  /**
+   * The agent that had the round has gone without finishing it, so it goes
+   * back to waiting for one, as it was submitted. For a host that hands
+   * rounds to agents it cannot see, and notices when one stops answering.
+   */
+  requeue(): void {
+    this.expect('working', 'be handed back to wait for the agent');
+    if (!this.delivered) throw new Error('there is no round to hand back');
+    this.phase = 'submitted';
+    this.message = null;
+    this.pending = this.delivered;
     this.changed();
   }
 
@@ -231,6 +316,7 @@ export class CommentStore {
     this.summary = summary?.trim() || null;
     this.summaryRound = this.summary ? finishedRound : null;
     this.pending = null;
+    this.delivered = null;
     // Live: anything written while the agent was busy goes out at once,
     // rather than waiting on the reviewer to notice it is their move again.
     // The summary just set is kept, so it is not lost in the same tick.
@@ -275,7 +361,12 @@ const copyPin = (pin: Pin): Pin => ({ ...pin, box: { ...pin.box }, viewport: { .
 
 /** A pin as a verdict's `target`: the same fields, as the loose record the schema takes. */
 const target = (pin: Pin): Record<string, unknown> => ({ ...copyPin(pin) });
-const copy = (c: Comment): Comment => (c.pin ? { ...c, pin: copyPin(c.pin) } : { ...c });
+const copy = (c: Comment): Comment => {
+  const out = { ...c };
+  if (c.pin) out.pin = copyPin(c.pin);
+  if (c.author) out.author = { ...c.author };
+  return out;
+};
 
 /** The markers' numbers: pinned comments count 1, 2, 3 in the order they were made. */
 export function pinNumbers(comments: Comment[]): Map<string, number> {

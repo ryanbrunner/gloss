@@ -19,6 +19,12 @@ export interface Transport {
   setLive(live: boolean): Promise<RoundState>;
   /** Changes made somewhere else: another tab, or the agent through the CLI. */
   subscribe(listener: (state: RoundState) => void): void;
+  /**
+   * A word from the host for the reviewer, about the host rather than the
+   * round, such as how to get pictures of pinned elements. The bar shows it
+   * in the status line when the round has nothing to say there. Null clears it.
+   */
+  hints?(listener: (hint: string | null) => void): void;
 }
 
 /** What the bar asks of the session. See `handleRpc` in ../rpc.ts. */

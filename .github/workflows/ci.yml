@@ -23,6 +23,8 @@ jobs:
         if: ${{ !cancelled() }}
       - run: npx tsx scripts/spikes/nav-check.ts
         if: ${{ !cancelled() }}
+      - run: npx tsx scripts/spikes/remote-check.ts
+        if: ${{ !cancelled() }}
 
   # Gloss as Homebrew installs it: packed through the `files` allowlist,
   # installed with no install scripts, and run from node_modules rather than
