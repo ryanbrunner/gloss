@@ -101,6 +101,8 @@ function withPictureLinks(v: VerdictV2): VerdictV2 {
 }
 
 const clientOf = (c: Context) => c.req.header('x-gloss-client') ?? '';
+/** How many of the next asks for a verdict answer 503, as a proxy in front of a restarting server would. */
+let flaky = 0;
 const signedIn = (c: Context) => tokens.has(c.req.header('authorization')?.replace(/^Bearer /, '') ?? '');
 const app = new Hono();
 let origin = '';
@@ -120,6 +122,7 @@ app.post('/token', async (c) => {
   return ++tokenAsks === 1 ? c.json({ error: 'authorization_pending' }, 400) : c.json({ access_token: TOKEN });
 });
 app.get('/shots/:key', (c) => (signedIn(c) ? c.body(PNG, 200, { 'content-type': 'image/png' }) : c.json({ error: 'no' }, 401)));
+app.use('/api/verdict', async (c, next) => (flaky > 0 && flaky-- ? c.json({ error: 'upstream restarting' }, 503) : next()));
 app.route(
   '/',
   createApp({
@@ -202,7 +205,12 @@ try {
   r1.add('Make the header shorter', page, undefined, { id: 'u-bo', name: null });
   r1.submit(page);
 
-  const first = v2Of(await gloss(agentA, ['wait']));
+  // Two 503s first: the wait asks again rather than giving up.
+  flaky = 2;
+  const flakyWait = await gloss(agentA, ['wait']);
+  assert.match(flakyWait.stderr, /answered 503; trying again until it answers/);
+  assert.equal(flaky, 0);
+  const first = v2Of(flakyWait);
   assert.equal(first.review, 'r1', 'the inbox hands out its reviews in order');
   assert.deepEqual(first.comments[0]?.author, { id: 'u-bo', name: null });
   const again = v2Of(await gloss(agentA, ['wait']));
@@ -217,7 +225,7 @@ try {
   assert.deepEqual(readFileSync(shot as string), PNG);
   assert.equal(other.comments[0]?.target?.screenshotUrl, '/shots/r2-c1.png');
   assert.deepEqual(other.comments[0]?.author, { id: 'u-ana', name: 'Ana' });
-  console.log('wait: version 2 verdicts in order, one agent each, with authors and pictures fetched locally');
+  console.log('wait: version 2 verdicts in order, one agent each, with authors and pictures fetched locally; 5xx is retried');
 
   // An agent working on one review gets no other's round until it is ready,
   // so its `ready` cannot land on the wrong review.
