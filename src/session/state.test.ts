@@ -8,10 +8,14 @@ import {
   acquireLock,
   liveSession,
   pidAlive,
+  readRemote,
   readState,
+  remoteShotsPath,
+  removeRemote,
   removeState,
   sessionRef,
   writeState,
+  type RemoteState,
   type SessionState,
 } from './state.js';
 
@@ -43,6 +47,18 @@ const state = (values: Partial<SessionState> = {}): SessionState => ({
   cwd: '/somewhere',
   name: '',
   url: 'http://127.0.0.1:4400/',
+  startedAt: 0,
+  ...values,
+});
+
+const remote = (values: Partial<RemoteState> = {}): RemoteState => ({
+  kind: 'remote',
+  server: 'https://gloss.example/v1/projects/acme',
+  clientId: 'client-1',
+  reviews: true,
+  review: null,
+  cwd: '/somewhere',
+  name: '',
   startedAt: 0,
   ...values,
 });
@@ -99,6 +115,44 @@ describe('the state file', () => {
     assert.ok(existsSync(ref.statePath));
     removeState(ref, 42);
     assert.ok(!existsSync(ref.statePath));
+  });
+});
+
+describe('a connection to a server elsewhere', () => {
+  test('reads a session file written before there were connections as a session', () => {
+    const ref = sessionRef(dir('old-file'));
+    const { kind: _, ...old } = state({ port: 6000 });
+    writeFileSync(ref.statePath, JSON.stringify(old));
+    assert.equal(readState(ref)?.port, 6000);
+    assert.equal(readRemote(ref), null);
+  });
+
+  test('is never read as a session, so nothing looks for its pid or port', async () => {
+    const ref = sessionRef(dir('remote'));
+    writeState(ref, remote());
+    assert.equal(readState(ref), null);
+    assert.equal(await liveSession(ref), null);
+    assert.equal(readRemote(ref)?.server, 'https://gloss.example/v1/projects/acme');
+  });
+
+  test('is not removed by a session shutting down', () => {
+    const ref = sessionRef(dir('remote-kept'));
+    writeState(ref, remote());
+    removeState(ref, process.pid);
+    assert.ok(readRemote(ref));
+  });
+
+  test('goes with its pictures, and leaves a session alone', () => {
+    const ref = sessionRef(dir('remote-removed'));
+    writeState(ref, remote());
+    mkdirSync(join(remoteShotsPath(ref), 'r1'), { recursive: true });
+    removeRemote(ref);
+    assert.equal(readRemote(ref), null);
+    assert.ok(!existsSync(remoteShotsPath(ref)));
+
+    writeState(ref, state());
+    removeRemote(ref);
+    assert.ok(readState(ref), 'a session is not a connection to remove');
   });
 });
 

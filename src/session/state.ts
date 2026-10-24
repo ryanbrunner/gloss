@@ -16,6 +16,8 @@ import { isHealthy } from './client.js';
  */
 
 export const sessionStateSchema = z.object({
+  /** Absent in files written before there were remote connections, which are all local. */
+  kind: z.literal('local').optional(),
   pid: z.number().int(),
   port: z.number().int(),
   token: z.string().min(1),
@@ -26,6 +28,32 @@ export const sessionStateSchema = z.object({
   startedAt: z.number(),
 });
 export type SessionState = z.infer<typeof sessionStateSchema>;
+
+/**
+ * A directory connected to a Gloss server elsewhere (`gloss connect`)
+ * rather than running a session of its own. There is no process or port:
+ * the commands talk to `server` over HTTPS, with the token saved for its
+ * origin (./credentials.ts). It sits where a session's state file would, so
+ * a directory has one or the other, and `readState` never mistakes it for a
+ * session.
+ */
+export const remoteStateSchema = z.object({
+  kind: z.literal('remote'),
+  /** Where the API is: its routes are `${server}/api/…`. */
+  server: z.string(),
+  /** Says which agent is asking, so a server handing rounds to many can keep each with the one it gave it to. */
+  clientId: z.string().min(1),
+  /** Whether the server holds many reviews, so a round's review has to be named. */
+  reviews: z.boolean(),
+  /** The review of the last round `gloss wait` printed: the one `working` and `ready` act on. */
+  review: z.string().nullable(),
+  cwd: z.string(),
+  name: z.string(),
+  startedAt: z.number(),
+});
+export type RemoteState = z.infer<typeof remoteStateSchema>;
+
+export const isRemote = (state: SessionState | RemoteState): state is RemoteState => state.kind === 'remote';
 
 /** Everything about one session that can be known before it is running. */
 export interface SessionRef {
@@ -63,6 +91,15 @@ export function sessionRef(cwd: string, name = ''): SessionRef {
 
 /** The state file, or null when there is none or it is not one this version wrote. */
 export function readState(ref: SessionRef): SessionState | null {
+  return readAs(ref, sessionStateSchema);
+}
+
+/** The directory's connection to a server elsewhere, or null when it has none. */
+export function readRemote(ref: SessionRef): RemoteState | null {
+  return readAs(ref, remoteStateSchema);
+}
+
+function readAs<T>(ref: SessionRef, schema: z.ZodType<T>): T | null {
   let text: string;
   try {
     text = readFileSync(ref.statePath, 'utf8');
@@ -70,7 +107,7 @@ export function readState(ref: SessionRef): SessionState | null {
     return null;
   }
   try {
-    const parsed = sessionStateSchema.safeParse(JSON.parse(text));
+    const parsed = schema.safeParse(JSON.parse(text));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
@@ -78,7 +115,7 @@ export function readState(ref: SessionRef): SessionState | null {
 }
 
 /** Written beside and renamed over, so a reader never sees half a file. */
-export function writeState(ref: SessionRef, state: SessionState): void {
+export function writeState(ref: SessionRef, state: SessionState | RemoteState): void {
   mkdirSync(dirname(ref.statePath), { recursive: true });
   const tmp = `${ref.statePath}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
@@ -93,6 +130,16 @@ export function removeState(ref: SessionRef, pid: number): void {
   if (readState(ref)?.pid !== pid) return;
   rmSync(ref.statePath, { force: true });
 }
+
+/** Ends the directory's connection to a server, if it has one, and drops the pictures saved from it. */
+export function removeRemote(ref: SessionRef): void {
+  if (!readRemote(ref)) return;
+  rmSync(ref.statePath, { force: true });
+  rmSync(remoteShotsPath(ref), { recursive: true, force: true });
+}
+
+/** Where `gloss wait` saves the pictures a server's verdicts link to, a directory per review. */
+export const remoteShotsPath = (ref: SessionRef) => join(ref.shotsPath, 'remote');
 
 /** Whether a process is there. EPERM means it is, and belongs to someone else. */
 export function pidAlive(pid: number): boolean {
