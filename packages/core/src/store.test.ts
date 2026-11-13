@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { verdictSchema } from '../verdict.js';
+import { verdictSchema } from './verdict.js';
 import { CommentStore, pinNumbers, type Pin, type RoundState } from './store.js';
 
 const PAGE = 'http://127.0.0.1:4400/';

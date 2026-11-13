@@ -1,6 +1,6 @@
+import type { Phase, RoundState } from '#core/store.js';
 import { CliError } from '../output.js';
 import type { SessionState } from './state.js';
-import type { Phase, RoundState } from './store.js';
 
 /**
  * The CLI's side of a running session: authed requests to its loopback API.

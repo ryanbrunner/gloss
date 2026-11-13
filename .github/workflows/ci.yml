@@ -43,6 +43,13 @@ jobs:
           node-version: ${{ matrix.node-version }}
           node-version-file: ${{ matrix.node-version-file }}
       - run: npm pack --pack-destination "$RUNNER_TEMP"
+      # Homebrew never builds core, so the CLI's tarball carries its source,
+      # and none of its tests.
+      - name: The tarball carries core's source and no tests
+        run: |
+          tar tzf "$RUNNER_TEMP"/gloss-*.tgz > "$RUNNER_TEMP/contents"
+          grep -qxF package/packages/core/src/store.ts "$RUNNER_TEMP/contents"
+          ! grep -E '\.test\.ts$' "$RUNNER_TEMP/contents"
       - run: npm install --global --ignore-scripts --prefix "$RUNNER_TEMP/g" "$RUNNER_TEMP"/gloss-*.tgz
       - name: gloss --version prints the package's version
         run: |
@@ -63,6 +70,46 @@ jobs:
       # Linux users to run it, actually installs Chromium and its libraries.
       - name: gloss install-chromium --with-deps works from the packed install
         run: $RUNNER_TEMP/g/bin/gloss install-chromium --with-deps
+
+  # @glossdev/core as npm publishes it: built, packed, and installed into a
+  # project of its own, where every entry point has to load. Its hosts run
+  # it in a browser extension and in Workers, so neither bundle may reach
+  # for Node.
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm pack -w @glossdev/core --pack-destination "$RUNNER_TEMP"
+      - run: npx -y publint@0.3 packages/core --strict
+      - name: Every entry point loads from the installed package
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir consumer && cd consumer
+          echo '{"name":"consumer","type":"module","private":true}' > package.json
+          npm install "$RUNNER_TEMP"/glossdev-core-*.tgz hono@4
+          node --input-type=module -e "
+            const core = await import('@glossdev/core');
+            const { createApp, Waits } = await import('@glossdev/core/server');
+            const app = createApp({ token: 't', store: new core.CommentStore(), waits: new Waits(), currentUrl: () => null });
+            const res = await app.request('/api/state', { headers: { authorization: 'Bearer t' } });
+            if (res.status !== 200) throw new Error('state answered ' + res.status);
+          "
+          test -f node_modules/@glossdev/core/schema/verdict.v1.json
+          test -f node_modules/@glossdev/core/dist/bar/index.d.ts
+      - name: Neither bundle reaches for Node
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          npx -y esbuild@0.28 --bundle --format=esm --platform=browser --outfile=bar.js node_modules/@glossdev/core/dist/bar/index.js
+          npx -y esbuild@0.28 --bundle --format=esm --platform=neutral --main-fields=module,main --outdir=neutral node_modules/@glossdev/core/dist/index.js node_modules/@glossdev/core/dist/server.js
+          ! grep -l '"node:' bar.js neutral/*.js
 
   # The formula template, linted, audited, and actually installed from a tap,
   # as the published copy is: Homebrew's rules for formulae go by where the

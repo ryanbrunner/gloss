@@ -5,11 +5,13 @@ import { VERSION } from './version.js';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
-test('the package and the Claude Code plugin have the same version', () => {
-  // A release tag is checked against both, so they move together.
+test('the package, the Claude Code plugin and @glossdev/core have the same version', () => {
+  // A release tag is checked against all three, so they move together.
   const plugin = JSON.parse(read('../plugin/.claude-plugin/plugin.json'));
+  const core = JSON.parse(read('../packages/core/package.json'));
   assert.match(VERSION, /^\d+\.\d+\.\d+/);
   assert.equal(plugin.version, VERSION, 'bump plugin/.claude-plugin/plugin.json with package.json');
+  assert.equal(core.version, VERSION, 'bump packages/core/package.json with package.json');
 });
 
 test('the Homebrew formula template points at this version', () => {

@@ -1,9 +1,9 @@
 import { parseArgs } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { verdictSchema } from '#core/verdict.js';
 import { CliError, note, parseOrUsage, printJson } from '../output.js';
 import { api, Unreachable } from '../session/client.js';
 import { liveSession, sessionRef } from '../session/state.js';
-import { verdictSchema } from '../verdict.js';
 
 /** How long each ask is held: under the session's cap, and far under the 300 seconds Node's fetch waits for an answer. */
 const POLL_SECONDS = 25;

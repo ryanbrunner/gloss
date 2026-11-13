@@ -1,0 +1,54 @@
+{
+  "name": "@glossdev/core",
+  "version": "0.2.0",
+  "description": "The parts of Gloss any host can run: the review store, the verdict contract, the bar's RPC and the agent's HTTP API",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanbrunner/gloss.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/ryanbrunner/gloss#readme",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./bar": {
+      "types": "./dist/bar/index.d.ts",
+      "default": "./dist/bar/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./verdict.v1.json": "./schema/verdict.v1.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "schema",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"const fs=require('node:fs');fs.mkdirSync('schema',{recursive:true});fs.copyFileSync('../../schema/verdict.v1.json','schema/verdict.v1.json')\"",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "hono": "^4.13.8"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    }
+  }
+}

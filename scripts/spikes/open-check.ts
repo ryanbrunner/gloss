@@ -21,10 +21,10 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
+import { BAR_HEIGHT, STATUS_HEIGHT } from '#core/bar/styles.js';
+import type { RoundState } from '#core/store.js';
 import { createDevServer } from '../dev.js';
-import { BAR_HEIGHT, STATUS_HEIGHT } from '../../src/bar/styles.js';
 import { pidAlive, readState, sessionRef } from '../../src/session/state.js';
-import type { RoundState } from '../../src/session/store.js';
 
 const BIN = fileURLToPath(new URL('../../bin/gloss.js', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'gloss-open-check-'));

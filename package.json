@@ -13,6 +13,12 @@
   },
   "private": true,
   "type": "module",
+  "imports": {
+    "#core/*.js": "./packages/core/src/*.ts"
+  },
+  "workspaces": [
+    "packages/core"
+  ],
   "engines": {
     "node": ">=22.12"
   },
@@ -23,6 +29,8 @@
     "bin",
     "src",
     "!src/**/*.test.ts",
+    "packages/core/src",
+    "!packages/core/src/**/*.test.ts",
     "schema",
     "docs",
     "README.md",
@@ -32,7 +40,7 @@
     "dev": "tsx scripts/dev.ts",
     "gloss": "node bin/gloss.js",
     "schema": "tsx scripts/write-schema.ts",
-    "test": "tsx --test 'src/**/*.test.ts' 'scripts/**/*.test.ts'",
+    "test": "tsx --test 'src/**/*.test.ts' 'packages/core/src/**/*.test.ts' 'scripts/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

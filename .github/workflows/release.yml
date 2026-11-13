@@ -1,8 +1,9 @@
 name: Release
 
-# A v* tag releases Gloss: a GitHub release, and the formula in
-# ryanbrunner/homebrew-tap made from packaging/homebrew/gloss.rb for the tag.
-# Run by hand, it is a dry run: it prints the formula and publishes nothing.
+# A v* tag releases Gloss: a GitHub release, the formula in
+# ryanbrunner/homebrew-tap made from packaging/homebrew/gloss.rb for the tag,
+# and @glossdev/core on npm. Run by hand, it is a dry run: it prints the
+# formula and the package's contents and publishes nothing.
 # docs/releasing.md has the whole of it.
 
 on:
@@ -30,14 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # First, so a tag that disagrees with either version publishes nothing.
-      - name: The tag matches package.json and plugin.json
+      # First, so a tag that disagrees with any version publishes nothing.
+      - name: The tag matches package.json, plugin.json and core's package.json
         run: |
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::$TAG is not a release tag (vX.Y.Z)"
             exit 1
           fi
-          for file in package.json plugin/.claude-plugin/plugin.json; do
+          for file in package.json plugin/.claude-plugin/plugin.json packages/core/package.json; do
             version=$(jq -r .version "$file")
             if [ "v$version" != "$TAG" ]; then
               echo "::error file=$file::version is $version, but the tag is $TAG"
@@ -102,3 +103,40 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "gloss ${TAG#v}"
           git push origin HEAD:main
+
+  # The shared code, for hosts other than the CLI. The CLI never installs it
+  # from npm: Homebrew packs the repo with scripts off, so the formula carries
+  # core's TypeScript source instead (see `files` in package.json). After
+  # `release`, so a tag whose versions disagree publishes nothing here either.
+  publish-core:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - name: Publish @glossdev/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then
+            npm publish -w @glossdev/core --access public --dry-run
+            exit 0
+          fi
+          version=$(jq -r .version packages/core/package.json)
+          # Already there means a rerun after a later step failed.
+          if npm view "@glossdev/core@$version" version > /dev/null 2>&1; then
+            echo "@glossdev/core@$version is already published"
+            exit 0
+          fi
+          npm publish -w @glossdev/core --access public --provenance

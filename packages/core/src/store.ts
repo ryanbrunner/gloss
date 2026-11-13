@@ -1,4 +1,4 @@
-import type { Verdict } from '../verdict.js';
+import type { Verdict } from './verdict.js';
 
 /**
  * The review as it stands: the comments, the round they belong to, and whose

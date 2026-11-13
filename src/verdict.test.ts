@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
-import { verdictJsonSchema, verdictSchema } from './verdict.js';
+import { verdictJsonSchema, verdictSchema } from '#core/verdict.js';
 
 const SCHEMA_FILE = new URL('../schema/verdict.v1.json', import.meta.url);
 

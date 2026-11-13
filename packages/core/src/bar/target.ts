@@ -1,4 +1,4 @@
-import type { Pin, PinDraft } from '../session/store.js';
+import type { Pin, PinDraft } from '../store.js';
 import { squeeze } from './geometry.js';
 
 /**

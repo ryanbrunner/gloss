@@ -30,9 +30,9 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bundleBar } from '../src/bar/bundle.js';
-import type { Mode } from '../src/bar/bar.js';
-import type { DemoRound, DemoTarget } from '../src/bar/transport.js';
+import type { Mode } from '#core/bar/bar.js';
+import type { DemoRound, DemoTarget } from '#core/bar/transport.js';
+import { bundleBar } from '../src/session/bundle.js';
 
 const FIXTURE = new URL('../fixtures/storefront/', import.meta.url);
 const DEFAULT_PORT = 4400;

@@ -8,21 +8,21 @@ import { fileURLToPath } from 'node:url';
  * esbuild is the one tsx already runs on.
  *
  * `session` mounts itself against the Gloss session's binding, in the
- * isolated world ../session/browser.ts runs it in. `demo` mounts nothing on
+ * isolated world ./browser.ts runs it in. `demo` mounts nothing on
  * its own: it exposes `GlossDemo.mount(...)` for the demo page to call with a
- * round of its own (a `DemoRound`, from ./transport.ts).
+ * round of its own (a `DemoRound`, from packages/core/src/bar/transport.ts).
  */
 export type BarMode = 'session' | 'demo';
 
 const ENTRIES: Record<BarMode, string> = {
   session: `
-    import { mountBar } from './bar.js';
-    import { bindingTransport } from './transport.js';
+    import { mountBar } from '#core/bar/bar.js';
+    import { bindingTransport } from '#core/bar/transport.js';
     mountBar(bindingTransport());
   `,
   demo: `
-    import { mountBar } from './bar.js';
-    import { memoryTransport } from './transport.js';
+    import { mountBar } from '#core/bar/bar.js';
+    import { memoryTransport } from '#core/bar/transport.js';
     export function mount(options) {
       mountBar(memoryTransport(options.round), {
         listOpen: options.listOpen,
