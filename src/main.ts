@@ -64,6 +64,10 @@ The review loop, for the agent:
 --name   more than one session from one directory: each name is a session of
          its own.
 
+An app that shows pages itself, such as Reeve, can host the session:
+GLOSS_HOST, set in the agent's environment, is where \`gloss open\` asks it
+to, before opening a window of its own.
+
 Sessions are found through state files in $GLOSS_HOME/sessions, where
 GLOSS_HOME is ~/.gloss unless set. Each session's output is in
 $GLOSS_HOME/logs. Sign-ins are in $GLOSS_HOME/credentials.json.
