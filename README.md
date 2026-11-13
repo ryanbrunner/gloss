@@ -129,6 +129,24 @@ if the server asks (a link to approve in a browser), and from then on
 
 [docs/protocol.md](docs/protocol.md) is what such a server has to answer.
 
+### Hosted by an app
+
+An app that shows pages itself can be the window instead of Chromium. Reeve
+does this in a card's Preview tab. The app starts `gloss __session --host
+--cwd <dir> --url <url>`, and the two talk in JSON lines over that process's
+stdin and stdout. Gloss keeps the round, the state file and the API, so
+`wait`, `working` and `ready` work as they always do. The app runs the bar
+Gloss hands it in every page, in a world of its own, and passes the bar's
+calls on and the answers back. It also loads, reloads and photographs the
+page when Gloss asks. `src/session/host.ts` has the messages. Closing stdin
+ends the session. A hosted session refuses to start over one already
+running in the directory.
+
+`GLOSS_HOST` is how the agent's `gloss open` finds the app. Set in the
+agent's environment, it is a URL that `open` POSTs `{cwd, name, url, live}`
+to when the directory has no session. The app starts one and answers 2xx
+once it is up. Any other answer, or none, and `open` opens Chromium as usual.
+
 ### Where things live
 
 - `~/.gloss/sessions/<id>.json`: the running session's pid, port and token, or

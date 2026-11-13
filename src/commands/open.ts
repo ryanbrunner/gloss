@@ -4,7 +4,8 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { CliError, parseOrUsage, print, usageError } from '../output.js';
+import { firstLine } from '#core/util.js';
+import { CliError, note, parseOrUsage, print, usageError } from '../output.js';
 import { chromiumMissing } from '../session/browser.js';
 import { api, sessionUrl } from '../session/client.js';
 import { acquireLock, liveSession, readRemote, sessionRef, type SessionRef, type SessionState } from '../session/state.js';
@@ -45,6 +46,10 @@ export async function open(args: string[]): Promise<void> {
   const running = await liveSession(ref);
   if (running) return reuse(running, url, live);
 
+  // Before the lock: the host's session takes it itself.
+  const hosted = await askHost(ref, url, live);
+  if (hosted) return report(hosted, url, false, 'the preview');
+
   const missing = chromiumMissing();
   if (missing) throw new CliError(missing);
 
@@ -81,8 +86,38 @@ async function reuse(state: SessionState, url: string, live: boolean): Promise<v
   report(state, url, true);
 }
 
-function report(state: SessionState, url: string, reused: boolean): void {
-  print(`${reused ? 'Showing' : 'Opened'} ${url} in the Gloss window${reused ? ' already open' : ''}.`);
+/**
+ * An app that shows pages itself, such as Reeve, sets `GLOSS_HOST` in the
+ * environment of the agent it runs to a URL to POST `{cwd, name, url, live}`
+ * to. It starts the session with `gloss __session --host` and answers 2xx once
+ * that session is up, and `open` then reports it like any other. Any other
+ * answer, or none, means the host will not take this one, and Chromium opens
+ * as usual.
+ */
+async function askHost(ref: SessionRef, url: string, live: boolean): Promise<SessionState | null> {
+  const host = process.env.GLOSS_HOST;
+  if (!host) return null;
+  try {
+    const res = await fetch(host, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cwd: ref.cwd, name: ref.name, url, live }),
+      signal: AbortSignal.timeout(READY_WAIT_MS),
+    });
+    if (!res.ok) {
+      const why = (await res.text().catch(() => '')).trim();
+      note(`gloss: the host at GLOSS_HOST did not take the session (${res.status}${why ? `: ${why}` : ''}); opening a window instead`);
+      return null;
+    }
+  } catch (e) {
+    note(`gloss: could not reach the host at GLOSS_HOST (${firstLine(e)}); opening a window instead`);
+    return null;
+  }
+  return liveSession(ref);
+}
+
+function report(state: SessionState, url: string, reused: boolean, where = 'the Gloss window'): void {
+  print(`${reused ? 'Showing' : 'Opened'} ${url} in ${where}${reused ? ' already open' : ''}.`);
   print(`session  ${sessionUrl(state)} (pid ${state.pid})`);
 }
 
