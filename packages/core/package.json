@@ -27,7 +27,8 @@
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
     },
-    "./verdict.v1.json": "./schema/verdict.v1.json"
+    "./verdict.v1.json": "./schema/verdict.v1.json",
+    "./verdict.v2.json": "./schema/verdict.v2.json"
   },
   "files": [
     "dist",
@@ -37,7 +38,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"const fs=require('node:fs');fs.mkdirSync('schema',{recursive:true});fs.copyFileSync('../../schema/verdict.v1.json','schema/verdict.v1.json')\"",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"const fs=require('node:fs');fs.mkdirSync('schema',{recursive:true});for(const f of ['verdict.v1.json','verdict.v2.json'])fs.copyFileSync('../../schema/'+f,'schema/'+f)\"",
     "prepack": "npm run build"
   },
   "dependencies": {

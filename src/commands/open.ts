@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { CliError, parseOrUsage, print, usageError } from '../output.js';
 import { chromiumMissing } from '../session/browser.js';
 import { api, sessionUrl } from '../session/client.js';
-import { acquireLock, liveSession, sessionRef, type SessionRef, type SessionState } from '../session/state.js';
+import { acquireLock, liveSession, readRemote, sessionRef, type SessionRef, type SessionState } from '../session/state.js';
 
 /** How long `open` waits for a new session to say it is up. Chromium's first start is most of it. */
 const READY_WAIT_MS = 15_000;
@@ -34,6 +34,13 @@ export async function open(args: string[]): Promise<void> {
   const url = normalizeUrl(positionals[0]!);
   const ref = sessionRef(process.cwd(), values.name ?? '');
   const live = values.live ?? false;
+
+  const remote = readRemote(ref);
+  if (remote) {
+    throw new CliError(
+      `this directory is connected to ${remote.server}, which has no window to open: run \`gloss close\` to disconnect, or use --name for a session of its own`,
+    );
+  }
 
   const running = await liveSession(ref);
   if (running) return reuse(running, url, live);

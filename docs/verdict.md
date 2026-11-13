@@ -6,14 +6,22 @@ that read it, such as Reeve and the Gloss skill. The machine-readable form is
 [`schema/verdict.v1.json`](../schema/verdict.v1.json) (JSON Schema 2020-12),
 written from `packages/core/src/verdict.ts`; `npm test` fails if the two drift apart.
 
+A Gloss session on this machine (`gloss open`) always prints version 1. A
+directory connected to a server holding many reviews (`gloss connect`) gets
+[version 2](#version-2-many-reviews) instead, which says which review a
+round belongs to.
+
 ## Approval
 
 A consumer may treat the result as approval **only if all of these hold**:
 
 1. `gloss wait` exited 0
 2. stdout parsed as a single JSON document
-3. `version === 1`
+3. `version === 1`, or `version === 2` for a consumer that reads version 2
 4. `approved === true`
+
+In version 2, approval ends that one review (`review`), not the connection:
+the next `gloss wait` may bring a round of another.
 
 Anything else is **no verdict**, never approval. That covers a non-zero exit,
 a killed process, empty or unparseable output, an unknown version, and a
@@ -138,3 +146,30 @@ If the reviewer approves while they still have comments they never
 submitted, the bar asks them to confirm. Confirming deletes those comments:
 they are not in the verdict (`comments` is `[]`) and not in the session
 afterwards.
+
+## Version 2: many reviews
+
+A server can hold many reviews at once: an inbox that several reviewers
+write to, each in a review of their own. There, `round` and a comment's `id`
+are unique only within one review, and one approval ends one review, so a
+verdict says which it is about. Version 2 is version 1 with these changes:
+
+| Field | |
+| --- | --- |
+| `version` | `2`. |
+| `review` | The review this answers. Required. |
+| `round` | The round of **that review**. Two verdicts with the same `review` and `round` are the same verdict. |
+| `approved` | `true` ends that review only. |
+| `comments[].id` | Unique within the review. |
+| `comments[].author` | `{id, name}`: who wrote it, as the server signed them in. Absent when the server does not say. `name` may be `null`. |
+| `comments[].target.screenshotUrl` | Where the server keeps the picture. |
+| `comments[].target.screenshot` | A local path, as in version 1, when the client that printed the verdict saved the picture there (`gloss wait` does). Absent when it could not. |
+
+The machine-readable form is [`schema/verdict.v2.json`](../schema/verdict.v2.json).
+A consumer that reads only version 1 parses a version 2 document as no
+verdict, which is never approval, so nothing that predates version 2 can
+mistake one review's approval for the end of the session.
+
+For version 2, dedupe on (`review`, `round`), and after a verdict with
+`approved: false`, `gloss working` and `gloss ready` act on that verdict's
+review. `docs/protocol.md` says how a server hands verdicts out.

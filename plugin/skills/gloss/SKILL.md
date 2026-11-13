@@ -1,6 +1,6 @@
 ---
 name: gloss
-description: "Open a running web app (a dev server URL) in the Gloss review window, then apply the reviewer's feedback round by round until they approve. Use only when the user invokes /gloss or directly asks to review a page with Gloss."
+description: "Open a running web app (a dev server URL) in the Gloss review window, or wait on the Gloss server this directory is connected to, then apply the reviewers' feedback round by round until they approve. Use only when the user invokes /gloss or directly asks to review a page with Gloss."
 allowed-tools: Bash(gloss:*), Bash(command -v gloss), Bash(mktemp:*), Bash(cat:*), Read, Edit, Write, Glob, Grep
 argument-hint: "<url>"
 ---
@@ -26,7 +26,23 @@ If there is nothing, stop and tell the user to install it with
 
 ## Step 2: Open the page
 
-Pass `$ARGUMENTS` through. If it is empty, ask the user for the dev server URL.
+First check whether this directory is connected to a Gloss server, where
+reviewers comment on the site from their own browsers rather than in a
+window here:
+
+```bash
+gloss status --json
+```
+
+If it prints `"remote": true`, **do not run `gloss open`**. Tell the user:
+
+> **"Connected to <url>. Waiting for the next round from its reviewers."**
+
+then make the verdict file as below and go to Step 3. Everything after this
+works the same, except where a step says **Connected**.
+
+Otherwise, pass `$ARGUMENTS` through. If it is empty, ask the user for the
+dev server URL.
 
 ```bash
 gloss open $ARGUMENTS
@@ -83,7 +99,7 @@ It is one JSON document:
 - the exit code was not 0 (stderr says why: the window was closed, or the
   session ended)
 - the file is empty or is not JSON
-- `version` is not `1`
+- `version` is not `1`, or, **connected**, not `1` or `2`
 
 None of those is approval, whatever else you saw. Never treat a missing or
 unreadable result as approval.
@@ -91,11 +107,17 @@ unreadable result as approval.
 - `"approved": true` → go to Step 6.
 - `"approved": false` → go to Step 5.
 
+**Connected**, the verdict is usually version 2: the same, plus `review`,
+which review of the server's this round belongs to, and an `author` on each
+comment, who wrote it. Rounds of different reviews can arrive one after
+another; each is a round of its own review.
+
 ## Step 5: Apply the round
 
 **Your next Gloss command must be `gloss working`, not `gloss wait`.** Until
 you say you are working, `gloss wait` prints the same round again. If you do
-see a `round` you have already handled, skip it rather than applying it twice.
+see a `round` you have already handled (**connected**: the same `review` and
+`round`), skip it rather than applying it twice.
 
 ```bash
 gloss working "Addressing 3 comments from round 1"
@@ -108,6 +130,9 @@ For each comment in `comments`:
 1. Understand what it asks for. `page` is where the reviewer was when they
    wrote it.
 2. Make the change with Edit. The dev server's own reload picks it up.
+   **Connected**, the reviewer is on a deployed site, so nothing they see
+   changes until your change is deployed: work on a branch, and commit or
+   open a pull request as the user would want.
 3. Keep a one-line note of what you did.
 
 If you finish some and want the bar to say where you are, run `gloss working`
@@ -124,6 +149,13 @@ per comment.
 Tell the user: **"Changes are in. Check them in the Gloss window, then Submit
 more comments or Approve."** Then go back to Step 3.
 
+**Connected**, `gloss ready` reloads nothing: it posts the summary, which the
+reviewer sees the next time they open the page. Say in the summary where the
+change is (the branch or pull request) and that it shows once deployed.
+Tell the user: **"Posted the summary for review <review>. The reviewer sees
+it next time they open the page; the change shows once it is deployed."**
+Then go back to Step 3.
+
 If `gloss wait` ever exits 1 saying to run `gloss ready`, you skipped it: run
 `gloss ready` with your summary, then wait again.
 
@@ -135,6 +167,12 @@ gloss close
 
 Summarise for the user what changed across all the rounds.
 
+**Connected**, an approval ends that one review, not the connection, and
+other reviewers may still send rounds. **Do not run `gloss close`.**
+Summarise what changed in that review, then ask the user whether to keep
+waiting for more rounds (go back to Step 3) or stop. Run `gloss close` only
+if they ask to disconnect this directory from the server.
+
 ## Notes
 
 - `kind` is `"general"` for now. A comment with `"kind": "pinned"` has a
@@ -143,6 +181,9 @@ Summarise for the user what changed across all the rounds.
 - More than one review from one directory: add `--name <n>` to every
   `gloss` command.
 - The verdict format is documented in `docs/verdict.md` in the Gloss repo.
+- To connect a directory to a server, the user runs
+  `gloss connect <server-url>` once (it may print a sign-in link to approve
+  in a browser). Do not run it yourself unless they ask.
 - The reviewer can turn on **Live** in the bar, or the session can be opened
   with `gloss open --live`. It changes nothing about this loop: comments
   can still arrive while you are `working`, they still wait for the next

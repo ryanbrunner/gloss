@@ -73,6 +73,13 @@ export interface BarOptions {
   mode?: Mode;
   /** A selector for an element to start with picked and the comment box open on, in Select mode. */
   pick?: string;
+  /**
+   * The bar's shadow root. `open` by default, so the end-to-end checks can
+   * look inside it. A host running the bar on pages it does not trust, such
+   * as a browser extension on a production site, closes it, so the page's
+   * scripts cannot reach in through `host.shadowRoot`.
+   */
+  shadow?: ShadowRootMode;
 }
 
 export type Mode = 'interact' | 'select';
@@ -125,7 +132,9 @@ export function mountBar(transport: Transport, options: BarOptions = {}): void {
 
 class Bar {
   readonly host = document.createElement(HOST_TAG);
-  private readonly root = this.host.attachShadow({ mode: 'open' });
+  private readonly root: ShadowRoot;
+  /** The transport's word for the reviewer, shown when the round has none. */
+  private hint: string | null = null;
   private readonly popoverSupported = typeof this.host.showPopover === 'function';
   private state: RoundState = { round: 1, phase: 'reviewing', message: null, summary: null, summaryRound: null, live: false, comments: [] };
   private listOpen: boolean;
@@ -203,6 +212,7 @@ class Bar {
     /** Watches for a text selection to offer "Comment on selection" on, in Interact mode. */
     private readonly selectionWatcher: SelectionWatcher,
   ) {
+    this.root = this.host.attachShadow({ mode: options.shadow ?? 'open' });
     this.listOpen = options.listOpen ?? false;
     this.confirming = false;
     this.confirmOnLoad = options.confirmOpen ?? false;
@@ -299,6 +309,10 @@ class Bar {
     this.keepAttached();
     keepPinnedClear(this.host);
     this.transport.subscribe((s) => this.render(s));
+    this.transport.hints?.((hint) => {
+      this.hint = hint;
+      this.renderStatus(this.state);
+    });
     this.render(this.state);
     this.transport.state().then(
       (s) => {
@@ -593,9 +607,10 @@ class Bar {
 
   /** Whose move it is, and what the agent last said. */
   private renderStatus(state: RoundState): void {
-    const [text, title] = statusText(state);
+    const [said, title] = statusText(state);
+    const text = said || this.hint || '';
     this.status.textContent = this.confirming ? '' : text;
-    this.status.title = title;
+    this.status.title = said ? title : text;
     this.status.dataset.phase = state.phase;
     const others = document.adoptedStyleSheets.filter((s) => s !== this.statusOffset);
     const showing = Boolean(this.status.textContent);
