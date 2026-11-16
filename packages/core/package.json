@@ -1,6 +1,6 @@
 {
   "name": "@glossdev/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The parts of Gloss any host can run: the review store, the verdict contract, the bar's RPC and the agent's HTTP API",
   "license": "MIT",
   "repository": {
