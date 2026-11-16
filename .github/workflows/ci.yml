@@ -123,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git archive --prefix=gloss/ HEAD | gzip > "$RUNNER_TEMP/gloss.tar.gz"
-      - run: brew tap-new --no-git local/gloss-check
+      - run: brew tap-new --no-git local/gloss-check && brew trust --tap local/gloss-check
       - name: Render the formula with the tarball's file:// url and sha256
         run: |
           sed -e "s|^  url \".*\"$|  url \"file://$RUNNER_TEMP/gloss.tar.gz\"|" \
