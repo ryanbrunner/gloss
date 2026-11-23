@@ -22,7 +22,7 @@ template's `url` and `sha256` for the tag and pushes the result to the tap as
 3. Tag the merge and push the tag:
 
    ```sh
-   git tag v0.2.0 && git push origin v0.2.0
+   git tag v0.3.0 && git push origin v0.3.0
    gh run watch
    ```
 
@@ -53,7 +53,7 @@ Run by hand, the workflow makes and prints the formula and publishes nothing:
 no release, no push to the tap, and only `npm publish --dry-run` for core.
 
 ```sh
-gh workflow run release.yml -f tag=v0.2.0
+gh workflow run release.yml -f tag=v0.3.0
 gh run watch
 ```
 
@@ -67,11 +67,11 @@ CI lints and audits the template (the `formula` job), but only installing it
 shows that it builds. From a local tap, with a tarball of HEAD:
 
 ```sh
-git archive --prefix=gloss-0.2.0/ HEAD | gzip > /tmp/gloss-0.2.0.tar.gz
-brew tap-new local/gloss-check --no-git
+git archive --prefix=gloss-0.3.0/ HEAD | gzip > /tmp/gloss-0.3.0.tar.gz
+brew tap-new local/gloss-check --no-git && brew trust --tap local/gloss-check
 tap=$(brew --repository local/gloss-check)
-sed -e 's|^  url ".*"$|  url "file:///tmp/gloss-0.2.0.tar.gz"|' \
-    -e "s|^  sha256 \".*\"$|  sha256 \"$(shasum -a 256 /tmp/gloss-0.2.0.tar.gz | cut -d' ' -f1)\"|" \
+sed -e 's|^  url ".*"$|  url "file:///tmp/gloss-0.3.0.tar.gz"|' \
+    -e "s|^  sha256 \".*\"$|  sha256 \"$(shasum -a 256 /tmp/gloss-0.3.0.tar.gz | cut -d' ' -f1)\"|" \
     packaging/homebrew/gloss.rb > "$tap/Formula/gloss.rb"
 brew install --build-from-source local/gloss-check/gloss
 brew test local/gloss-check/gloss
